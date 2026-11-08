@@ -1,6 +1,4 @@
 // Sound and Meme Manager for GenZ Spidey Attendance
-// Stores mute preference in localStorage
-
 const MUTE_KEY = "spidey_meme_muted";
 
 export function isMuted(): boolean {
@@ -25,6 +23,7 @@ export type SoundType =
 	| "metal_gear"
 	| "oh_my_god"
 	| "spiderman"
+	| "web_swing"
 	| "dexter"
 	| "faaah"
 	| "cat_laugh";
@@ -38,12 +37,12 @@ const SOUND_PATHS: Record<SoundType, string> = {
 	metal_gear: "/sounds/metal-gear-alert-sound-effect_XKoHReZ.mp3",
 	oh_my_god: "/sounds/oh-my-god-meme.mp3",
 	spiderman: "/sounds/spiderman-meme-song.mp3",
+	web_swing: "/sounds/web-swing.wav",
 	dexter: "/sounds/dexter.mp3",
 	faaah: "/sounds/faaah.mp3",
 	cat_laugh: "/sounds/cat-laugh-meme-1.mp3",
 };
 
-// Play a sound cleanly (respects mute setting and stops previous overlapping sound)
 export function playSound(type: SoundType, volume: number = 0.6): void {
 	if (typeof window === "undefined" || isMuted()) return;
 	try {
@@ -53,22 +52,19 @@ export function playSound(type: SoundType, volume: number = 0.6): void {
 		}
 		const audio = new Audio(SOUND_PATHS[type]);
 		audio.volume = Math.min(1, Math.max(0, volume));
-		audio.play().catch(() => {
-			// Autoplay policy or user hasn't interacted yet
-		});
+		audio.play().catch(() => {});
 		activeAudio = audio;
 	} catch (e) {
-		console.warn("Audio play prevented:", e);
+		console.warn("Audio play error:", e);
 	}
 }
 
-// Slangs and Dialogues
 export const SPIDEY_SLANGS = [
 	"Aura +1000! We are so back fr fr 🕸️",
 	"Chat, is bro cooked? 💀",
 	"Lock in bro! Stand on business! 😤",
 	"Bro is NOT him right now... or is he? 👀",
-	"With great power comes great attendance shortage 🕷️",
+	"With great power comes 75% attendance criteria 🕷️",
 	"Nah, this is a canon event. 🍿",
 	"Mewing in the back bench rn 🗿",
 	"Skill issue detected. Go attend class! 🏃",

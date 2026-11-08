@@ -109,7 +109,6 @@ export default function SpideyCompanion({
 	useEffect(() => {
 		const handleMouseMove = (e: MouseEvent) => {
 			if (!isDragging) return;
-			// Spidey follows cursor with web shot to cursor
 			setWebTarget({ x: e.clientX, y: e.clientY });
 
 			const newX = e.clientX - dragStartOffset.current.x;
@@ -127,22 +126,16 @@ export default function SpideyCompanion({
 			const finalX = e.clientX - dragStartOffset.current.x;
 			const finalY = e.clientY - dragStartOffset.current.y;
 
-			// Do backflip animation on release!
-			setIsBackflipping(true);
-			playSound("spiderman", 0.35);
-			setTimeout(() => setIsBackflipping(false), 900);
-
-			// Wall stick logic: if released near left or right edge, stick to the wall!
+			// Stick to wall or floor cleanly without flip
 			if (finalX < 80) {
 				setPos({ x: 10, y: Math.max(80, Math.min(screenH - 120, finalY)) });
-				setRotation(90); // Clinging sideways to left wall
-				setSpeech("Stuck to the wall like a boss 🧗‍♂️");
+				setRotation(90); // Wall cling left
+				setSpeech("Stuck to the wall 🧗‍♂️");
 			} else if (finalX > screenW - 140) {
 				setPos({ x: screenW - 85, y: Math.max(80, Math.min(screenH - 120, finalY)) });
-				setRotation(-90); // Clinging sideways to right wall
+				setRotation(-90); // Wall cling right
 				setSpeech("Wall crawling in progress 🕷️");
 			} else if (finalY > screenH - 160) {
-				// Sit on the floor
 				setPos({ x: finalX, y: screenH - 100 });
 				setRotation(0);
 				setSpeech("Chillin on the floor rn 🍕");
@@ -164,7 +157,7 @@ export default function SpideyCompanion({
 		};
 	}, [isDragging]);
 
-	// Click & Drag Start
+	// Click & Drag Start: play a subtle web swing whoosh, NO theme song
 	const handleMouseDown = (e: React.MouseEvent) => {
 		e.preventDefault();
 		setIsDragging(true);
@@ -172,17 +165,19 @@ export default function SpideyCompanion({
 			x: e.clientX - pos.x,
 			y: e.clientY - pos.y,
 		};
+		// Gentle web whoosh sound
+		playSound("web_swing", 0.35);
 		setSpeech("WHEEEEE! Web swinging! 🕸️💨");
 		setIsPeeping(true);
 	};
 
-	// Double click for a 360 backflip trick
+	// Only backflip when user explicitly DOUBLE-CLICKS Spidey!
 	const handleDoubleClick = () => {
 		setIsBackflipping(true);
-		playSound("spiderman", 0.4);
+		playSound("web_swing", 0.4);
 		setSpeech("Aura +1000 Backflip! 🤸‍♂️✨");
 		setIsPeeping(true);
-		setTimeout(() => setIsBackflipping(false), 900);
+		setTimeout(() => setIsBackflipping(false), 800);
 	};
 
 	// Rickroll prank trigger
@@ -296,18 +291,18 @@ export default function SpideyCompanion({
 				</div>
 			)}
 
-			{/* Draggable, Flipping, Wall-Sticking Spidey PNG Avatar (NO BOX!) */}
+			{/* Draggable, Wall-Sticking Spidey PNG Avatar */}
 			<div
 				style={{
 					left: `${pos.x}px`,
 					top: `${pos.y}px`,
 					transform: `rotate(${rotation}deg)`,
-					transition: isDragging ? "none" : "all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+					transition: isDragging ? "none" : "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
 				}}
 				onMouseDown={handleMouseDown}
 				onDoubleClick={handleDoubleClick}
 				className="fixed z-40 select-none cursor-grab active:cursor-grabbing pointer-events-auto"
-				title="Drag me around! Double-click to do a backflip!"
+				title="Drag me around! Double-click to do a backflip trick!"
 			>
 				{/* Speech bubble */}
 				<div
@@ -320,9 +315,9 @@ export default function SpideyCompanion({
 					<div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-b-2 border-r-2 border-black rotate-45" />
 				</div>
 
-				{/* Pure Transparent Spidey PNG Character with Flip Animation */}
+				{/* Pure Transparent Spidey PNG Character */}
 				<div
-					className={`w-20 h-20 filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.35)] transition-transform duration-700 ${
+					className={`w-20 h-20 filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.35)] transition-transform duration-500 ${
 						isBackflipping ? "rotate-[360deg] scale-125" : ""
 					} ${isDragging ? "scale-110 -rotate-12" : "hover:scale-105"}`}
 				>
