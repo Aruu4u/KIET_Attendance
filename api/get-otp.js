@@ -1,7 +1,4 @@
-// Fetches the latest Cyber Vidya Login OTP from Gmail.
-// Requires the Google refresh token to be stored in the google_refresh_token cookie.
-// Optional query param: ?after=<unix_ms> to only look at emails after a specific time.
-
+// Robust extraction of 6-digit OTP from Gmail
 function parseCookies(cookieHeader) {
   const cookies = {};
   if (!cookieHeader) return cookies;
@@ -17,24 +14,23 @@ function parseCookies(cookieHeader) {
 
 function getEmailBody(payload) {
   if (!payload) return '';
+  let text = '';
   if (payload.body?.data) {
     try {
-      return Buffer.from(payload.body.data, 'base64').toString('utf-8');
+      text += Buffer.from(payload.body.data, 'base64').toString('utf-8');
     } catch {
-      return '';
+      // ignore decode error
     }
   }
   if (payload.parts) {
     for (const part of payload.parts) {
-      const text = getEmailBody(part);
-      if (text) return text;
+      text += ' ' + getEmailBody(part);
     }
   }
-  return '';
+  return text;
 }
 
 export default async function handler(req, res) {
-  // Handle preflight
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -50,7 +46,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Get a fresh access token from the stored refresh token
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -68,52 +63,54 @@ export default async function handler(req, res) {
       console.error('Refresh token error:', tokenData);
       return res.status(401).json({
         status: 'token_error',
-        message: 'Could not refresh Gmail access. Please re-authorize at /api/auth/google.',
+        message: 'Could not refresh Gmail access. Re-authorize at /api/auth/google.',
       });
     }
 
     const accessToken = tokenData.access_token;
 
-    // Build Gmail search query
-    // Filter by time: only emails AFTER the timestamp provided (or last 10 minutes)
-    const afterMs = req.query.after ? Number(req.query.after) : Date.now() - 10 * 60 * 1000;
-    const afterSec = Math.floor(afterMs / 1000);
-    const query = `from:kiet@cybervidya.net subject:"Cyber Vidya Login OTP" after:${afterSec}`;
+    // Flexible query: matches kiet OR cybervidya OR "Login OTP"
+    // Search up to 3 most recent messages so we never miss it even with slight time discrepancies
+    const query = '(from:cybervidya OR "Cyber Vidya" OR "Login OTP")';
 
     const searchRes = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=1`,
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=3`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
     const searchData = await searchRes.json();
 
     if (!searchData.messages || searchData.messages.length === 0) {
-      return res.status(404).json({ status: 'not_found', message: 'OTP email not received yet.' });
+      return res.status(404).json({ status: 'not_found', message: 'No matching OTP email found in Gmail.' });
     }
 
-    const messageId = searchData.messages[0].id;
+    // Iterate through the latest 3 candidate emails to find the 6-digit OTP
+    for (const msgSummary of searchData.messages) {
+      const msgRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgSummary.id}?format=full`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
 
-    // Fetch the full message
-    const msgRes = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-    );
+      const message = await msgRes.json();
+      const snippet = message.snippet || '';
+      const body = getEmailBody(message.payload);
+      const fullText = `${snippet} ${body}`;
 
-    const message = await msgRes.json();
-
-    // Extract text from snippet + body
-    const snippet = message.snippet || '';
-    const body = getEmailBody(message.payload);
-    const fullText = `${snippet} ${body}`;
-
-    // Extract the 6-digit OTP
-    const otpMatch = fullText.match(/\b(\d{6})\b/);
-
-    if (!otpMatch) {
-      return res.status(422).json({ status: 'parse_error', message: 'Found email but could not extract OTP.' });
+      // Check if message is relevant
+      const isRelevant = /cyber\s*vidya|login\s*otp|kiet/i.test(fullText);
+      if (isRelevant) {
+        // Find 6 digit code
+        const otpMatch = fullText.match(/\b(\d{6})\b/);
+        if (otpMatch) {
+          return res.status(200).json({ status: 'success', otp: otpMatch[1] });
+        }
+      }
     }
 
-    return res.status(200).json({ status: 'success', otp: otpMatch[1] });
+    return res.status(422).json({
+      status: 'parse_error',
+      message: 'Found CyberVidya email but could not locate 6-digit code.',
+    });
   } catch (err) {
     console.error('get-otp error:', err);
     return res.status(500).json({ status: 'error', message: 'Internal server error.' });
