@@ -16,13 +16,23 @@ export default function SpideyCompanion({
 }) {
 	const [speech, setSpeech] = useState<string>("Yo! F this Attendance fr fr 🕸️");
 	const [isPeeping, setIsPeeping] = useState<boolean>(false);
+	const [isSwinging, setIsSwinging] = useState<boolean>(false);
 	const [activeMeme, setActiveMeme] = useState<PopMeme | null>(null);
 
-	// Evaluate attendance and trigger sounds seamlessly (limited/once per condition)
+	// Dynamic position state for Spidey roaming around the screen
+	// Pos: x (percentage across screen 5% to 85%), y (percentage from bottom 4% to 75%)
+	const [position, setPosition] = useState<{ x: number; y: number }>({
+		x: 8,
+		y: 8,
+	});
+
+	// Fake Holiday Alert Bait (Click to reveal Rickroll prank)
+	const [holidayBaitVisible, setHolidayBaitVisible] = useState<boolean>(false);
+
+	// Evaluate attendance and trigger reactions seamlessly
 	useEffect(() => {
 		if (!attendanceData) return;
 		try {
-			// Find overall percentage
 			const data = attendanceData as {
 				attendanceCourseComponentInfoList?: Array<{
 					attendanceCourseComponentNameInfoList?: Array<{
@@ -81,60 +91,123 @@ export default function SpideyCompanion({
 
 			return () => clearTimeout(timer);
 		} catch {
-			// ignore evaluation errors
+			// ignore
 		}
 	}, [attendanceData]);
 
-	// Random Spidey swings / peeks and speech bubbles (every 20-35s)
+	// Roaming / Swinging mechanism: every 15-22 seconds Spidey swings to a new spot!
 	useEffect(() => {
 		const interval = setInterval(() => {
+			setIsSwinging(true);
 			setIsPeeping(true);
 			setSpeech(getRandomSlang());
+
+			// Pick a random corner / position on screen
+			const spots = [
+				{ x: 6, y: 8 }, // bottom left
+				{ x: 18, y: 22 }, // low mid
+				{ x: 75, y: 15 }, // bottom right
+				{ x: 80, y: 55 }, // mid right
+				{ x: 10, y: 50 }, // mid left
+				{ x: 45, y: 8 }, // bottom center
+			];
+			const randomSpot = spots[Math.floor(Math.random() * spots.length)];
+			setPosition(randomSpot);
+
+			// Finish swing animation after 3.5s
+			setTimeout(() => {
+				setIsSwinging(false);
+			}, 3500);
+
+			// Hide speech bubble after 7s
 			setTimeout(() => {
 				setIsPeeping(false);
-			}, 6000);
-		}, 25000);
+			}, 7000);
+		}, 18000);
 
 		return () => clearInterval(interval);
 	}, []);
 
-	// Prank popup trigger (Rickroll "New Holiday Update!" once after 40 seconds)
+	// Show catchy Fake Holiday popup bait after 30 seconds
 	useEffect(() => {
-		const prankTimer = setTimeout(() => {
-			setActiveMeme({
-				id: Date.now(),
-				image: "/sounds/rick-roll_B9ZrDk1.webp",
-				title: "🎉 URGENT: KIET NEW HOLIDAY NOTICE!",
-				subtitle: "You just got Rickrolled! Stay delulu! 🕺",
-				sound: "rickroll",
-			});
-			playSound("rickroll", 0.6);
-			setSpeech("Never gonna give you up... Never gonna let you miss class! 🕺");
-		}, 40000);
-
-		return () => clearTimeout(prankTimer);
+		const baitTimer = setTimeout(() => {
+			setHolidayBaitVisible(true);
+		}, 30000);
+		return () => clearTimeout(baitTimer);
 	}, []);
 
-	// Dismiss active meme after 6 seconds
+	// When user clicks the Holiday Bait -> trigger Rickroll prank!
+	const triggerRickrollPrank = () => {
+		setHolidayBaitVisible(false);
+		setActiveMeme({
+			id: Date.now(),
+			image: "/sounds/rick-roll_B9ZrDk1.webp",
+			title: "🕺 YOU JUST GOT RICKROLLED!",
+			subtitle: "No new holiday bro... go attend class! Never gonna let you down! 😭",
+			sound: "rickroll",
+		});
+		playSound("rickroll", 0.7);
+		setSpeech("Never gonna give you up... Never gonna give you holiday! 🕺");
+		setIsPeeping(true);
+	};
+
+	// Auto-dismiss active meme popups after 7s
 	useEffect(() => {
 		if (activeMeme) {
-			const t = setTimeout(() => setActiveMeme(null), 6500);
+			const t = setTimeout(() => setActiveMeme(null), 7000);
 			return () => clearTimeout(t);
 		}
 	}, [activeMeme]);
 
 	const handleSpideyClick = () => {
-		setIsPeeping((prev) => !prev);
+		setIsPeeping(true);
+		setIsSwinging((prev) => !prev);
 		setSpeech(getRandomSlang());
-		playSound("spiderman", 0.5);
+		playSound("spiderman", 0.4);
 	};
 
 	return (
 		<>
-			{/* Side Meme Pop-up Notification */}
+			{/* Catchy Fake Holiday Notice Bait Popup */}
+			{holidayBaitVisible && (
+				<div
+					onClick={triggerRickrollPrank}
+					className="fixed top-20 right-4 z-50 cursor-pointer max-w-xs bg-amber-300 border-3 border-black shadow-[6px_6px_0_#000] p-3 rounded-2xl animate-pulse hover:scale-105 active:scale-95 transition-all"
+					title="Click to check holiday details"
+				>
+					<div className="flex items-start gap-2.5">
+						<span className="text-2xl">🚨</span>
+						<div className="flex-1">
+							<div className="flex justify-between items-center">
+								<span className="text-[10px] font-black uppercase tracking-wider bg-red-600 text-white px-2 py-0.5 rounded-full border border-black">
+									URGENT NOTICE
+								</span>
+								<button
+									type="button"
+									onClick={(e) => {
+										e.stopPropagation();
+										setHolidayBaitVisible(false);
+									}}
+									className="text-black font-black text-xs hover:text-red-700"
+								>
+									✕
+								</button>
+							</div>
+							<h4 className="font-black text-xs text-black mt-1 uppercase">
+								KIET: New Semester Holiday Declared!
+							</h4>
+							<p className="text-[11px] text-gray-900 font-bold underline mt-0.5">
+								Tap here to see official list →
+							</p>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* Meme Pop-up Notification (waah kya scene, cat laugh, rickroll etc) */}
 			{activeMeme && (
 				<div
-					className="fixed top-18 right-4 z-50 max-w-xs bg-white border-3 border-black shadow-[6px_6px_0px_#000] p-3 rounded-xl animate-bounce"
+					className="fixed top-18 right-4 z-50 max-w-xs bg-white border-3 border-black shadow-[6px_6px_0_#000] p-3 rounded-xl animate-bounce"
 					style={{ animationIterationCount: 2 }}
 				>
 					<div className="flex justify-between items-start gap-2">
@@ -171,32 +244,50 @@ export default function SpideyCompanion({
 				</div>
 			)}
 
-			{/* Spidey Avatar: Swings, Peeks, and Talks from bottom-left */}
-			<div className="fixed bottom-4 left-4 z-40 flex items-end gap-2 pointer-events-auto select-none">
-				{/* Pixel Spidey */}
+			{/* Roaming & Swinging Spidey Avatar */}
+			<div
+				style={{
+					left: `${position.x}%`,
+					bottom: `${position.y}%`,
+					transition: "left 2.5s cubic-bezier(0.25, 1, 0.5, 1), bottom 2.5s cubic-bezier(0.25, 1, 0.5, 1)",
+				}}
+				className="fixed z-40 select-none pointer-events-auto"
+			>
+				{/* Web thread when swinging */}
+				{isSwinging && (
+					<div
+						className="absolute bottom-full left-7 w-0.5 bg-slate-400 opacity-70 origin-bottom animate-pulse"
+						style={{ height: "400px", transform: "rotate(-12deg)" }}
+					/>
+				)}
+
 				<div
 					onClick={handleSpideyClick}
-					className="cursor-pointer transition-transform hover:scale-110 active:scale-95 group relative"
-					title="Click Spidey for Lore & Slangs!"
+					className={`cursor-pointer transition-transform duration-500 relative ${
+						isSwinging
+							? "rotate-12 scale-110"
+							: "hover:scale-110 active:scale-95"
+					}`}
+					title="Click Spidey for lore and voice lines!"
 				>
 					{/* Speech bubble */}
 					<div
 						className={`absolute bottom-full left-0 mb-3 w-52 bg-white text-black p-2.5 rounded-2xl border-2 border-black shadow-[4px_4px_0_#000] text-xs font-bold leading-snug transition-all duration-300 ${
-							isPeeping ? "opacity-100 scale-100" : "opacity-90 scale-95"
+							isPeeping ? "opacity-100 scale-100" : "opacity-0 scale-75 pointer-events-none"
 						}`}
 					>
 						<p>{speech}</p>
-						{/* Speech bubble arrow */}
 						<div className="absolute -bottom-2 left-6 w-3 h-3 bg-white border-b-2 border-r-2 border-black rotate-45" />
 					</div>
 
+					{/* Pixel Spidey graphic (swapping between swinging & idle) */}
 					<div
-						className={`w-16 h-16 rounded-2xl p-1 bg-amber-100 border-2 border-black shadow-[3px_3px_0_#000] transition-all duration-500 ${
-							isPeeping ? "-translate-y-2 rotate-6" : "hover:-translate-y-1"
+						className={`w-16 h-16 rounded-2xl p-1 bg-amber-100 border-2 border-black shadow-[3px_3px_0_#000] flex items-center justify-center transition-all ${
+							isSwinging ? "-rotate-6 shadow-[5px_5px_0_#000]" : ""
 						}`}
 					>
 						<img
-							src={isPeeping ? "/spidey/spidey_swing.webp" : "/spidey/spidey_idle.jpg"}
+							src={isSwinging ? "/spidey/spidey_swing.webp" : "/spidey/spidey_idle.jpg"}
 							alt="Spidey companion"
 							className="w-full h-full object-contain pixelated"
 						/>
