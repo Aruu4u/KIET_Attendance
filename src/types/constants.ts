@@ -1,8 +1,9 @@
 import Cookies from "js-cookie";
 
 export const LIVE_URL = "https://kiet.cybervidya.net";
+// Always default to the proxy URL so requests succeed without requiring browser extensions
 export const PROXY_URL =
-	import.meta.env.VITE_PROXY_URL ?? "https://kiet.cybervidya.net";
+	import.meta.env.VITE_PROXY_URL || "https://cybervidya.amanpal.tech";
 export const API_MODE_COOKIE_NAME = "api_mode"; // "proxy" | "live"
 
 export function getApiMode(): "proxy" | "live" {
