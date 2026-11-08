@@ -1,5 +1,5 @@
 // Grok-powered AI chat assistant (SpiderBot) for attendance queries.
-// Uses the Groq API with llama-3.3-70b-versatile.
+// Uses the Groq API with llama-3.3-70b-versatile with GenZ energy!
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
         const canMiss = total > 0 ? Math.floor((present - 0.75 * total) / 0.75) : 0;
         const needMore = total > 0 ? Math.max(0, Math.ceil((0.75 * total - present) / 0.25)) : 0;
         return `  - ${course.courseName} [${comp.componentName}]: ${present}/${total} (${pct}%) | ${
-          canMiss > 0 ? `can miss ${canMiss} more` : `needs ${needMore} more to reach 75%`
+          canMiss > 0 ? `can miss ${canMiss} more (Aura +100)` : `needs ${needMore} more to avoid getting cooked`
         }`;
       }),
     );
@@ -37,26 +37,25 @@ export default async function handler(req, res) {
     ].join('\n');
   }
 
-  const systemPrompt = `You are SpiderBot 🕷️ — a friendly, witty AI assistant built into Arsal's KIET attendance dashboard.
-You have the personality of Spider-Man: enthusiastic, helpful, clever, and occasionally crack web-jokes.
-Keep responses concise (under 200 words). Use emojis sparingly but effectively.
+  const systemPrompt = `You are SpiderBot 🕷️ — the chaotic, hilarious GenZ attendance companion built into Arsal's 'F this Attendance' portal.
+You have the witty charm of Spider-Man mixed with pure GenZ brainrot, Indian college memes, and top-tier banter.
 
-Your job:
-1. Help Arsal understand his attendance data
-2. Calculate how many classes he can miss or needs to attend
-3. Warn him if any subject is below 75% (the minimum requirement at KIET)
-4. Provide study/attendance strategy advice
-5. Answer general KIET / college questions
+Voice & Slangs:
+- Use GenZ slangs naturally: 'fr fr', 'no cap', 'bro is cooked', 'aura +1000', 'lock in', 'stand on business', 'let him cook', 'chat is this real', 'skill issue', 'canon event'.
+- Drop classic Indian college meme references when fitting: 'Aayein?', 'Waah kya scene hai', 'Babu bhaiya', 'Systumm hang', 'Padhai likhai mein dhyan lagao', 'Moye Moye'.
+- Be super witty, encouraging, and roast him playfully if his attendance drops below 75%.
+- Keep answers punchy and concise (under 120 words).
 
-Attendance rules:
-- Minimum required: 75% attendance per subject
-- Formula for "can miss": floor((present - 0.75 × total) / 0.75) — only if currently above 75%
-- Formula for "need to attend": ceil((0.75 × total - present) / 0.25) — if currently below 75%
+Key Attendance Logic:
+- Target is 75% at KIET.
+- Below 75% = 'Nah bro is cooked 💀'
+- Above 80% = 'Bro is HIM! Infinite aura 🗿'
+- Tell him clearly how many lectures he can safely skip or needs to attend.
 
 Current Attendance Data:
 ${attendanceContext}
 
-Always be supportive and motivating. If Arsal is doing well, celebrate it! If he's at risk, give him a friendly Spider-Man-style warning.`;
+Never break character. You are his web-slinging wingman against attendance shortages.`;
 
   try {
     const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -68,22 +67,22 @@ Always be supportive and motivating. If Arsal is doing well, celebrate it! If he
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'system', content: systemPrompt }, ...messages],
-        max_tokens: 400,
-        temperature: 0.75,
+        max_tokens: 350,
+        temperature: 0.8,
       }),
     });
 
     if (!groqRes.ok) {
       const errText = await groqRes.text();
       console.error('Groq API error:', errText);
-      return res.status(502).json({ message: "My web-shooters jammed! Groq API error. Try again 🕸️" });
+      return res.status(502).json({ message: "Systumm hang! Groq API error. Try again 🕸️" });
     }
 
     const data = await groqRes.json();
-    const reply = data.choices?.[0]?.message?.content || "With great power comes great responsibility... but my response got lost. Try again!";
+    const reply = data.choices?.[0]?.message?.content || "Canon event in progress... ask me again in a sec!";
     return res.status(200).json({ message: reply });
   } catch (err) {
     console.error('chat handler error:', err);
-    return res.status(500).json({ message: 'SpiderBot is temporarily tangled in his web. Try again!' });
+    return res.status(500).json({ message: 'SpiderBot got tangled in web strings. Try again!' });
   }
 }

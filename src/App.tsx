@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import Attendance from "./components/Attendance";
 import Footer from "./components/Footer";
 import LoginForm from "./components/LoginForm";
+import MemeSoundToggle from "./components/MemeSoundToggle";
 import SpiderChat from "./components/SpiderChat";
+import SpideyCompanion from "./components/SpideyCompanion";
 import TnC from "./components/TnC";
 import { AttendanceDataContext } from "./contexts/AppContext";
 import { TARGET_PERCENTAGE } from "./types/constants";
@@ -124,25 +126,31 @@ function App() {
 	}, [isLoggedIn]);
 
 	return (
-		<div className="min-h-screen flex flex-col spider-web-bg">
-			{/* Spider-Man themed header banner */}
-			<div
-				className="overflow-hidden w-full"
-				style={{
-					background: "linear-gradient(135deg, rgba(204,0,0,0.9), rgba(139,0,0,0.95))",
-					borderBottom: "1px solid rgba(204,0,0,0.5)",
-				}}
-			>
-				<div
-					className="py-2 text-center text-xs font-bold tracking-widest uppercase text-red-100 flex items-center justify-center gap-2"
-				>
-					<span>🕷️</span>
-					<span>SPIDER ATTENDANCE &bull; KIET GROUP OF INSTITUTIONS</span>
-					<span>🕸️</span>
+		<div className="min-h-screen flex flex-col spidey-light-bg text-black">
+			{/* Top Navbar with GenZ "F this Attendance" Title + Sound/Meme Mute Toggle */}
+			<header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b-3 border-black shadow-[0_4px_0_#000] px-4 py-3 flex items-center justify-between">
+				<div className="flex items-center gap-2">
+					<span className="text-2xl animate-bounce" style={{ animationDuration: '2s' }}>🕷️</span>
+					<div>
+						<h1 className="font-black text-lg md:text-xl tracking-tight text-black flex items-center gap-1.5 uppercase">
+							<span>F this Attendance</span>
+							<span className="text-[10px] bg-red-500 text-white font-bold px-2 py-0.5 rounded-full border border-black shadow-[1px_1px_0_#000]">
+								Fr fr
+							</span>
+						</h1>
+						<p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest hidden sm:block">
+							KIET CyberVidya &bull; Zero Cap Attendance Tracker
+						</p>
+					</div>
 				</div>
-			</div>
 
-			<div className="grow flex flex-col justify-center">
+				{/* Top Right Sound & Meme Toggle Button */}
+				<div className="flex items-center gap-2">
+					<MemeSoundToggle />
+				</div>
+			</header>
+
+			<main className="grow flex flex-col justify-center relative">
 				<AttendanceDataContext.Provider
 					value={{
 						attendanceData,
@@ -167,10 +175,13 @@ function App() {
 						<Attendance />
 					)}
 
-					{/* SpiderBot AI Chat widget — available when logged in */}
+					{/* Spidey Companion (Pixel Avatar with speech bubbles & meme pop-ups) */}
+					<SpideyCompanion attendanceData={attendanceData} />
+
+					{/* SpiderBot AI Chat widget */}
 					{attendanceData && <SpiderChat />}
 				</AttendanceDataContext.Provider>
-			</div>
+			</main>
 
 			<Footer />
 		</div>

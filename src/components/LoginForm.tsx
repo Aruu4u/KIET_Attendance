@@ -1,6 +1,6 @@
 import axios from "axios";
 import Cookies from "js-cookie";
-import { Shield, Zap } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppContext } from "../contexts/AppContext";
 import {
@@ -23,7 +23,7 @@ import { setAuthCookie } from "../utils/jwt";
 import { encryptPassword, fetchAttendanceData } from "../utils/LoginUtils";
 import InstallExtensionPage from "./InstallExtensionPage";
 
-// ---- Hardcoded credentials (personal use only) ----
+// Hardcoded personal credentials
 const HARDCODED_USERNAME = "202401100200087";
 const HARDCODED_PASSWORD = "Arsal@2428";
 
@@ -143,7 +143,7 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 		}
 	}, [setAttendanceData]);
 
-	// --- Core: complete login after getting token ---
+	// --- Complete login after getting token ---
 	const completeLogin = useCallback(
 		async (login: {
 			token: string;
@@ -183,7 +183,7 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 		[setAttendanceData],
 	);
 
-	// --- Submit OTP (called manually or automatically) ---
+	// --- Submit OTP ---
 	const submitOtp = useCallback(
 		async (otp: string) => {
 			setLoading(true);
@@ -213,7 +213,6 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 				setLoading(false);
 			}
 		},
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[transactionId, completeLogin],
 	);
 
@@ -228,7 +227,7 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 		const tryFetchOtp = async () => {
 			if (cancelled) return;
 			attempts++;
-			setOtpStatus(`📧 Fetching OTP from Gmail... (attempt ${attempts}/${MAX_ATTEMPTS})`);
+			setOtpStatus(`📧 Fetching OTP from Gmail... (${attempts}/${MAX_ATTEMPTS})`);
 
 			try {
 				const res = await fetch(
@@ -239,7 +238,7 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 				if (cancelled) return;
 
 				if (data.status === "success" && data.otp) {
-					setOtpStatus(`✅ OTP received! Verifying automatically...`);
+					setOtpStatus(`✅ OTP received (${data.otp})! Verifying...`);
 					await submitOtp(data.otp);
 					return;
 				}
@@ -247,18 +246,18 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 				if (data.status === "unauthorized") {
 					setOtpStatus("");
 					setError(
-						"⚠️ Gmail not authorized. Please click 'Authorize Gmail' above, then try again.",
+						"⚠️ Gmail not authorized. Click 'Authorize Gmail' above to enable auto-OTP.",
 					);
 					return;
 				}
 
-				// Not found yet — retry
+				// Retry
 				if (attempts < MAX_ATTEMPTS) {
 					setTimeout(tryFetchOtp, 3000);
 				} else {
 					setOtpStatus("");
 					setError(
-						"Could not auto-fetch OTP after 45 seconds. Please enter it manually.",
+						"Could not auto-fetch OTP after 45 seconds. Enter manually below.",
 					);
 				}
 			} catch {
@@ -266,14 +265,13 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 					setTimeout(tryFetchOtp, 3000);
 				} else if (!cancelled) {
 					setOtpStatus("");
-					setError("Failed to fetch OTP automatically. Please enter it manually.");
+					setError("Failed to fetch OTP automatically. Enter manually below.");
 				}
 			}
 		};
 
-		// Wait 4 seconds for the email to arrive, then start polling
 		const initialTimer = setTimeout(tryFetchOtp, 4000);
-		setOtpStatus("⏳ Waiting for OTP email to arrive...");
+		setOtpStatus("⏳ Waiting for OTP email to land in Gmail...");
 
 		return () => {
 			cancelled = true;
@@ -289,12 +287,12 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 
 		const doAutoLogin = async () => {
 			setLoading(true);
-			setAutoLoginStatus("🕷️ Connecting to CyberVidya...");
+			setAutoLoginStatus("🕸️ Connecting to CyberVidya proxy...");
 
 			const enteredUser = HARDCODED_USERNAME;
 			const enteredPass = HARDCODED_PASSWORD;
 
-			// Step 1: Try direct login
+			// Step 1: Try legacy direct login
 			try {
 				const directResponse = await axios.post<LoginResponse>(
 					`${getBaseUrl()}/api/auth/login`,
@@ -325,12 +323,11 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 					setLoading(false);
 					return;
 				}
-				// Fall through to encrypted login
 			}
 
 			// Step 2: Encrypted login (triggers OTP flow)
 			try {
-				setAutoLoginStatus("🔐 Authenticating with CyberVidya...");
+				setAutoLoginStatus("🔐 Authenticating & requesting OTP...");
 				loginStartTimeRef.current = Date.now();
 
 				const loginResponse = await axios.post<EncryptLoginResponse>(
@@ -369,13 +366,13 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 				submittedPasswordRef.current = enteredPass;
 				submittedRememberMeRef.current = true;
 				setTransactionId(nextTransactionId);
-				setAutoLoginStatus("📧 OTP sent! Fetching from Gmail...");
+				setAutoLoginStatus("📧 OTP sent! Auto-fetching from Gmail...");
 				setStep("otp");
 			} catch (loginError) {
 				handleAuthError(
 					loginError,
 					"Invalid username or password.",
-					"Access forbidden. Check your credentials.",
+					"Access forbidden. Check credentials.",
 					"Login failed. CyberVidya's service isn't responding. Try again.",
 				);
 				setLoading(false);
@@ -383,10 +380,8 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 		};
 
 		doAutoLogin();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	}, [completeLogin]);
 
-	// Manual OTP form submit
 	const handleOtpSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		await submitOtp(otpRef.current?.value || "");
@@ -397,193 +392,124 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 	}
 
 	return (
-		<div className="flex flex-col mb-20 mt-20 items-center justify-center p-4">
-			<div
-				className="w-full max-w-md p-8 style-fade-in"
-				style={{
-					background: "rgba(6,10,26,0.9)",
-					border: "1px solid rgba(204,0,0,0.5)",
-					borderRadius: "16px",
-					boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04) inset",
-					backdropFilter: "blur(16px)",
-				}}
-			>
-				{/* Spider-Man Logo */}
-				<div className="flex flex-col items-center mb-8">
-					<div
-						className="w-20 h-20 rounded-full flex items-center justify-center mb-3 relative"
-						style={{
-							background: "linear-gradient(135deg, #cc0000, #8b0000)",
-							boxShadow: "0 8px 32px rgba(204,0,0,0.4)",
-						}}
-					>
-						<span className="text-4xl">🕷️</span>
+		<div className="flex flex-col mb-16 mt-8 items-center justify-center p-4">
+			<div className="w-full max-w-md p-6 sm:p-8 bg-white border-3 border-black shadow-[8px_8px_0_#000] rounded-2xl relative">
+				{/* Top badge */}
+				<div className="flex justify-between items-center mb-6">
+					<span className="text-[11px] font-black uppercase tracking-wider bg-red-100 text-red-700 px-3 py-1 rounded-full border-2 border-black shadow-[2px_2px_0_#000]">
+						🕸️ KIET Student Portal
+					</span>
+					<span className="text-xs font-bold text-gray-500">
+						Roll: 202401100200087
+					</span>
+				</div>
+
+				{/* Title & Spidey graphic */}
+				<div className="flex flex-col items-center mb-6">
+					<div className="w-20 h-20 mb-3 rounded-2xl p-2 bg-red-50 border-3 border-black shadow-[4px_4px_0_#000] flex items-center justify-center">
+						<img
+							src="/spidey/spidey_idle.jpg"
+							alt="Spidey"
+							className="w-full h-full object-contain"
+						/>
 					</div>
-					<h2
-						className="text-2xl font-black text-center"
-						style={{
-							background: "linear-gradient(135deg, #cc0000, #e30b0b)",
-							WebkitBackgroundClip: "text",
-							WebkitTextFillColor: "transparent",
-							backgroundClip: "text",
-							letterSpacing: "0.1em",
-						}}
-					>
-						SPIDER ATTENDANCE
+					<h2 className="text-2xl sm:text-3xl font-black text-center text-black tracking-tight uppercase">
+						F this Attendance
 					</h2>
-					<p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.4)", letterSpacing: "0.15em" }}>
-						KIET GROUP OF INSTITUTIONS
+					<p className="text-xs text-gray-600 font-bold mt-1 text-center">
+						"With great power comes 75% attendance criteria" 😭
 					</p>
 				</div>
 
-				{/* Gmail auth notice */}
+				{/* Gmail Auth Action Banner */}
 				{!gmailAuthorized && (
 					<a
 						href="/api/auth/google"
-						className="block mb-5 text-center text-sm font-semibold py-2.5 px-4 rounded-xl transition-all hover:opacity-90"
-						style={{
-							background: "linear-gradient(135deg, rgba(26,58,143,0.8), rgba(26,58,143,0.6))",
-							border: "1px solid rgba(26,58,143,0.6)",
-							color: "#93c5fd",
-							textDecoration: "none",
-						}}
+						className="block mb-5 text-center text-xs font-black py-2.5 px-4 rounded-xl border-2 border-black shadow-[3px_3px_0_#000] bg-blue-100 text-blue-900 hover:bg-blue-200 transition-all active:translate-y-0.5"
 					>
-						🔗 Authorize Gmail Access for Auto-OTP
+						🔗 Authorize Gmail Access for Auto-OTP (One-Time)
 					</a>
 				)}
 				{gmailAuthorized && (
-					<div
-						className="mb-5 text-center text-sm py-2 px-4 rounded-xl"
-						style={{
-							background: "rgba(0,150,0,0.1)",
-							border: "1px solid rgba(0,200,0,0.3)",
-							color: "#6ee7b7",
-						}}
-					>
-						✅ Gmail authorized — OTP will be fetched automatically
+					<div className="mb-5 text-center text-xs font-bold py-2 px-3 rounded-xl border-2 border-black shadow-[2px_2px_0_#000] bg-emerald-100 text-emerald-900 flex items-center justify-center gap-1.5">
+						<Sparkles size={14} className="text-emerald-700" />
+						<span>Gmail Authorized &bull; OTP auto-retrieval active</span>
 					</div>
 				)}
 
 				{/* API Mode Toggle */}
 				<div className="mb-6 flex flex-col items-center gap-1.5">
-					<div
-						className="relative grid grid-cols-2 w-64 p-0.5 select-none"
-						style={{
-							background: "rgba(255,255,255,0.05)",
-							border: "1px solid rgba(204,0,0,0.3)",
-							borderRadius: "8px",
-						}}
-					>
+					<div className="grid grid-cols-2 w-60 bg-gray-100 border-2 border-black p-1 rounded-xl shadow-[2px_2px_0_#000]">
 						{(["proxy", "live"] as const).map((mode) => (
 							<button
 								key={mode}
 								type="button"
 								onClick={() => handleModeToggle(mode)}
-								className="relative z-10 py-1.5 text-xs font-black uppercase tracking-wider transition-colors cursor-pointer text-center rounded-lg"
-								style={{
-									color: apiMode === mode ? "white" : "rgba(255,255,255,0.4)",
-									background: apiMode === mode ? "rgba(204,0,0,0.8)" : "transparent",
-								}}
-								aria-pressed={apiMode === mode}
+								className={`py-1.5 text-xs font-black uppercase rounded-lg transition-all cursor-pointer ${
+									apiMode === mode
+										? "bg-black text-white shadow-sm"
+										: "text-gray-600 hover:text-black"
+								}`}
 							>
-								{mode === "proxy" ? "Proxy" : "Live ERP"}
+								{mode === "proxy" ? "Proxy (No Ext)" : "Live ERP"}
 							</button>
 						))}
 					</div>
-					<p className="text-xs font-semibold uppercase tracking-wider text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
-						{apiMode === "proxy" ? "No extension required" : "Extension required"}
-					</p>
 				</div>
 
-				{/* Loading / Status display */}
+				{/* Loading State */}
 				{loading && step === "credentials" && (
 					<div className="text-center py-6">
-						<div
-							className="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center web-spin"
-							style={{
-								border: "2px solid rgba(204,0,0,0.2)",
-								borderTop: "2px solid #cc0000",
-							}}
-						/>
-						<p className="text-sm font-semibold" style={{ color: "rgba(255,255,255,0.7)" }}>
+						<div className="w-10 h-10 border-4 border-black border-t-red-600 rounded-full mx-auto mb-3 animate-spin" />
+						<p className="text-sm font-black text-black">
 							{autoLoginStatus}
+						</p>
+						<p className="text-xs text-gray-500 font-bold mt-1">
+							Let him cook... 🍳
 						</p>
 					</div>
 				)}
 
-				{/* OTP step (auto-handled) */}
+				{/* OTP Step */}
 				{step === "otp" && (
-					<div className="space-y-5">
-						{/* Auto-fetch status */}
+					<div className="space-y-4">
 						{otpStatus && (
-							<div
-								className="text-sm text-center py-3 px-4 rounded-xl"
-								style={{
-									background: "rgba(26,58,143,0.2)",
-									border: "1px solid rgba(26,58,143,0.4)",
-									color: "#93c5fd",
-								}}
-							>
+							<div className="text-xs font-black text-center py-2.5 px-3 rounded-xl border-2 border-black bg-amber-100 text-amber-950 shadow-[2px_2px_0_#000]">
 								{otpStatus}
 							</div>
 						)}
 
-						{/* Loading spinner for OTP step */}
-						{loading && (
-							<div className="flex items-center justify-center gap-3 py-2">
-								<div
-									className="w-6 h-6 rounded-full web-spin"
-									style={{
-										border: "2px solid rgba(204,0,0,0.2)",
-										borderTop: "2px solid #cc0000",
-									}}
-								/>
-								<span className="text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>
-									Verifying OTP...
+						{loading ? (
+							<div className="flex items-center justify-center gap-2 py-3">
+								<div className="w-5 h-5 border-3 border-black border-t-red-600 rounded-full animate-spin" />
+								<span className="text-xs font-black text-gray-800">
+									Verifying OTP with CyberVidya...
 								</span>
 							</div>
-						)}
-
-						{/* Manual OTP fallback form */}
-						{!loading && (
-							<form onSubmit={handleOtpSubmit} className="space-y-4">
-								<p className="text-sm text-center" style={{ color: "rgba(255,255,255,0.5)" }}>
-									Auto-fetch failed? Enter OTP manually:
-								</p>
+						) : (
+							<form onSubmit={handleOtpSubmit} className="space-y-3">
 								<div>
 									<label
 										htmlFor="otp"
-										className="block text-xs font-bold mb-1 uppercase tracking-wider"
-										style={{ color: "rgba(255,255,255,0.5)" }}
+										className="block text-xs font-black text-black uppercase mb-1"
 									>
-										One-Time Password
+										Manual OTP Backup:
 									</label>
 									<input
 										id="otp"
 										type="text"
 										inputMode="numeric"
-										autoComplete="one-time-code"
 										maxLength={6}
 										ref={otpRef}
 										placeholder="XXXXXX"
-										className="block w-full rounded-xl px-4 py-3 text-lg tracking-widest font-bold text-center"
-										style={{
-											background: "rgba(255,255,255,0.07)",
-											border: "1px solid rgba(204,0,0,0.4)",
-											color: "#f0f0f0",
-										}}
+										className="w-full text-center tracking-widest text-lg font-black py-2.5 px-3 bg-gray-50 border-2 border-black rounded-xl shadow-[3px_3px_0_#000] focus:outline-none focus:bg-white"
 										required
 									/>
 								</div>
 								<button
 									type="submit"
 									disabled={loading}
-									className="w-full py-3 px-4 text-sm font-black rounded-xl transition-all hover:-translate-y-0.5 hover:opacity-90 disabled:opacity-50"
-									style={{
-										background: "linear-gradient(135deg, #cc0000, #8b0000)",
-										color: "white",
-										border: "1px solid rgba(255,255,255,0.1)",
-									}}
+									className="w-full py-2.5 px-4 text-xs font-black uppercase text-white bg-red-600 border-2 border-black rounded-xl shadow-[3px_3px_0_#000] hover:bg-red-700 active:translate-y-0.5 cursor-pointer disabled:opacity-50"
 								>
 									Verify OTP →
 								</button>
@@ -593,11 +519,9 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 										setStep("credentials");
 										setError("");
 										setOtpStatus("");
-										setIsExtensionError(false);
 										hasAutoLoggedIn.current = false;
 									}}
-									className="w-full text-center text-sm bg-none border-none p-0 cursor-pointer underline"
-									style={{ color: "rgba(255,255,255,0.3)" }}
+									className="w-full text-center text-xs font-bold text-gray-500 underline cursor-pointer hover:text-black"
 								>
 									← Back to login
 								</button>
@@ -606,31 +530,15 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 					</div>
 				)}
 
-				{/* Error display */}
+				{/* Error Notice */}
 				{error && (
-					<div
-						className="relative text-sm p-3 rounded-xl mt-4"
-						style={{
-							background: "rgba(204,0,0,0.1)",
-							border: "1px solid rgba(204,0,0,0.4)",
-							color: "#fca5a5",
-						}}
-					>
-						{isExtensionError && (
-							<span
-								className="absolute -top-3 -right-3 text-white text-xs font-black px-2.5 py-0.5 rounded-full border border-red-900"
-								style={{ background: "#cc0000" }}
-							>
-								New
-							</span>
-						)}
+					<div className="mt-4 p-3 rounded-xl border-2 border-black bg-red-100 text-red-950 text-xs font-black shadow-[3px_3px_0_#000]">
 						<p>{error}</p>
 						{isExtensionError && (
 							<button
 								type="button"
 								onClick={() => setShowInstallPage(true)}
-								className="mt-2 font-bold underline cursor-pointer"
-								style={{ color: "#fca5a5" }}
+								className="mt-2 text-xs font-black underline cursor-pointer block"
 							>
 								View extension installation guide →
 							</button>
@@ -638,28 +546,16 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 					</div>
 				)}
 
-				{/* TnC link (shown when not loading) */}
-				{step === "credentials" && !loading && (
-					<div className="mt-6">
-						<p className="text-xs text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
-							By using this app, you agree to our{" "}
-							<button
-								type="button"
-								onClick={() => setIsTnCVisible((prev) => !prev)}
-								className="underline cursor-pointer"
-								style={{ color: "rgba(255,255,255,0.4)", background: "none", border: "none" }}
-							>
-								Terms of Service
-							</button>
-						</p>
-					</div>
-				)}
-
-				{/* Icons row */}
-				<div className="flex justify-center gap-4 mt-6">
-					<Shield size={16} style={{ color: "rgba(204,0,0,0.4)" }} />
-					<Zap size={16} style={{ color: "rgba(26,58,143,0.6)" }} />
-					<Shield size={16} style={{ color: "rgba(204,0,0,0.4)" }} />
+				{/* Footer credits inside card */}
+				<div className="mt-6 pt-4 border-t-2 border-dashed border-gray-300 flex justify-between items-center text-[10px] text-gray-500 font-bold uppercase">
+					<span>Aura Tracking: ON 🗿</span>
+					<button
+						type="button"
+						onClick={() => setIsTnCVisible((prev) => !prev)}
+						className="hover:text-black underline cursor-pointer"
+					>
+						Terms of Service
+					</button>
 				</div>
 			</div>
 		</div>
