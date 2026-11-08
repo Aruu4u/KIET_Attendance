@@ -14,13 +14,13 @@ export default function SpideyCompanion({
 }: {
 	attendanceData: unknown;
 }) {
-	const [speech, setSpeech] = useState<string>("Yo! Grab me and drag me around! 🕸️");
+	const [speech, setSpeech] = useState<string>("Yo! Drag me around the screen! 🕸️");
 	const [isPeeping, setIsPeeping] = useState<boolean>(true);
 	const [activeMeme, setActiveMeme] = useState<PopMeme | null>(null);
 	const [holidayBaitVisible, setHolidayBaitVisible] = useState<boolean>(false);
 
 	// Spidey Position on screen (in px)
-	const [pos, setPos] = useState<{ x: number; y: number }>({ x: 40, y: 350 });
+	const [pos, setPos] = useState<{ x: number; y: number }>({ x: 30, y: 320 });
 	const [isDragging, setIsDragging] = useState<boolean>(false);
 	const [isBackflipping, setIsBackflipping] = useState<boolean>(false);
 	const [webTarget, setWebTarget] = useState<{ x: number; y: number } | null>(null);
@@ -105,38 +105,47 @@ export default function SpideyCompanion({
 		}
 	}, [activeMeme]);
 
-	// Dragging with web-line effect and wall sticking
+	// Dragging with web-line effect (Supports BOTH Mouse AND Touch on Mobile)
 	useEffect(() => {
-		const handleMouseMove = (e: MouseEvent) => {
+		const handleMove = (clientX: number, clientY: number) => {
 			if (!isDragging) return;
-			setWebTarget({ x: e.clientX, y: e.clientY });
-
-			const newX = e.clientX - dragStartOffset.current.x;
-			const newY = e.clientY - dragStartOffset.current.y;
+			setWebTarget({ x: clientX, y: clientY });
+			const newX = clientX - dragStartOffset.current.x;
+			const newY = clientY - dragStartOffset.current.y;
 			setPos({ x: newX, y: newY });
 		};
 
-		const handleMouseUp = (e: MouseEvent) => {
+		const handleMouseMove = (e: MouseEvent) => {
+			handleMove(e.clientX, e.clientY);
+		};
+
+		const handleTouchMove = (e: TouchEvent) => {
+			if (e.touches.length > 0) {
+				handleMove(e.touches[0].clientX, e.touches[0].clientY);
+			}
+		};
+
+		const handleEnd = (clientX: number, clientY: number) => {
 			if (!isDragging) return;
 			setIsDragging(false);
 			setWebTarget(null);
 
 			const screenW = window.innerWidth;
 			const screenH = window.innerHeight;
-			const finalX = e.clientX - dragStartOffset.current.x;
-			const finalY = e.clientY - dragStartOffset.current.y;
+			const finalX = clientX - dragStartOffset.current.x;
+			const finalY = clientY - dragStartOffset.current.y;
 
-			// Stick to wall or floor cleanly without flip
-			if (finalX < 80) {
-				setPos({ x: 10, y: Math.max(80, Math.min(screenH - 120, finalY)) });
-				setRotation(90); // Wall cling left
-				setSpeech("Stuck to the wall 🧗‍♂️");
-			} else if (finalX > screenW - 140) {
-				setPos({ x: screenW - 85, y: Math.max(80, Math.min(screenH - 120, finalY)) });
-				setRotation(-90); // Wall cling right
+			// Wall stick or floor sit
+			if (finalX < 60) {
+				setPos({ x: 10, y: Math.max(60, Math.min(screenH - 120, finalY)) });
+				setRotation(90); // Cling to left
+				setSpeech("Stuck to the left wall 🧗‍♂️");
+			} else if (finalX > screenW - 100) {
+				setPos({ x: screenW - 75, y: Math.max(60, Math.min(screenH - 120, finalY)) });
+				setRotation(-90); // Cling to right
 				setSpeech("Wall crawling in progress 🕷️");
-			} else if (finalY > screenH - 160) {
-				setPos({ x: finalX, y: screenH - 100 });
+			} else if (finalY > screenH - 140) {
+				setPos({ x: finalX, y: screenH - 90 });
 				setRotation(0);
 				setSpeech("Chillin on the floor rn 🍕");
 			} else {
@@ -147,17 +156,37 @@ export default function SpideyCompanion({
 			setIsPeeping(true);
 		};
 
+		const handleMouseUp = (e: MouseEvent) => {
+			handleEnd(e.clientX, e.clientY);
+		};
+
+		const handleTouchEnd = (e: TouchEvent) => {
+			const touch = e.changedTouches[0];
+			if (touch) {
+				handleEnd(touch.clientX, touch.clientY);
+			} else {
+				setIsDragging(false);
+				setWebTarget(null);
+			}
+		};
+
 		if (isDragging) {
 			window.addEventListener("mousemove", handleMouseMove);
 			window.addEventListener("mouseup", handleMouseUp);
+			window.addEventListener("touchmove", handleTouchMove, { passive: false });
+			window.addEventListener("touchend", handleTouchEnd);
+			window.addEventListener("touchcancel", handleTouchEnd);
 		}
 		return () => {
 			window.removeEventListener("mousemove", handleMouseMove);
 			window.removeEventListener("mouseup", handleMouseUp);
+			window.removeEventListener("touchmove", handleTouchMove);
+			window.removeEventListener("touchend", handleTouchEnd);
+			window.removeEventListener("touchcancel", handleTouchEnd);
 		};
 	}, [isDragging]);
 
-	// Click & Drag Start: play a subtle web swing whoosh, NO theme song
+	// Mouse drag start
 	const handleMouseDown = (e: React.MouseEvent) => {
 		e.preventDefault();
 		setIsDragging(true);
@@ -165,14 +194,28 @@ export default function SpideyCompanion({
 			x: e.clientX - pos.x,
 			y: e.clientY - pos.y,
 		};
-		// Gentle web whoosh sound
 		playSound("web_swing", 0.35);
 		setSpeech("WHEEEEE! Web swinging! 🕸️💨");
 		setIsPeeping(true);
 	};
 
-	// Only backflip when user explicitly DOUBLE-CLICKS Spidey!
-	const handleDoubleClick = () => {
+	// Touch drag start (Mobile phones & tablets)
+	const handleTouchStart = (e: React.TouchEvent) => {
+		if (e.touches.length > 0) {
+			const touch = e.touches[0];
+			setIsDragging(true);
+			dragStartOffset.current = {
+				x: touch.clientX - pos.x,
+				y: touch.clientY - pos.y,
+			};
+			playSound("web_swing", 0.35);
+			setSpeech("WHEEEEE! Swinging on mobile! 📱🕸️");
+			setIsPeeping(true);
+		}
+	};
+
+	// Double click or tap for backflip trick
+	const handleBackflip = () => {
 		setIsBackflipping(true);
 		playSound("web_swing", 0.4);
 		setSpeech("Aura +1000 Backflip! 🤸‍♂️✨");
@@ -197,7 +240,7 @@ export default function SpideyCompanion({
 
 	return (
 		<>
-			{/* Web strand while dragging / swinging towards mouse */}
+			{/* Web strand while dragging / swinging towards finger/cursor */}
 			{isDragging && webTarget && (
 				<svg
 					className="fixed inset-0 pointer-events-none z-40 w-full h-full"
@@ -291,22 +334,24 @@ export default function SpideyCompanion({
 				</div>
 			)}
 
-			{/* Draggable, Wall-Sticking Spidey PNG Avatar */}
+			{/* Draggable, Wall-Sticking Spidey PNG Avatar with Full Touch Support */}
 			<div
 				style={{
 					left: `${pos.x}px`,
 					top: `${pos.y}px`,
 					transform: `rotate(${rotation}deg)`,
 					transition: isDragging ? "none" : "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+					touchAction: "none",
 				}}
 				onMouseDown={handleMouseDown}
-				onDoubleClick={handleDoubleClick}
+				onTouchStart={handleTouchStart}
+				onDoubleClick={handleBackflip}
 				className="fixed z-40 select-none cursor-grab active:cursor-grabbing pointer-events-auto"
-				title="Drag me around! Double-click to do a backflip trick!"
+				title="Drag me around! Double-tap for backflip!"
 			>
 				{/* Speech bubble */}
 				<div
-					className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-52 bg-white text-black p-2.5 rounded-2xl border-2 border-black shadow-[4px_4px_0_#000] text-xs font-bold leading-snug transition-all duration-300 pointer-events-none ${
+					className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 sm:w-52 bg-white text-black p-2.5 rounded-2xl border-2 border-black shadow-[4px_4px_0_#000] text-xs font-bold leading-snug transition-all duration-300 pointer-events-none ${
 						isPeeping ? "opacity-100 scale-100" : "opacity-0 scale-75"
 					}`}
 					style={{ transform: `rotate(${-rotation}deg)` }}
@@ -317,9 +362,9 @@ export default function SpideyCompanion({
 
 				{/* Pure Transparent Spidey PNG Character */}
 				<div
-					className={`w-20 h-20 filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.35)] transition-transform duration-500 ${
+					className={`w-16 h-16 sm:w-20 sm:h-20 filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.35)] transition-transform duration-500 ${
 						isBackflipping ? "rotate-[360deg] scale-125" : ""
-					} ${isDragging ? "scale-110 -rotate-12" : "hover:scale-105"}`}
+					} ${isDragging ? "scale-110 -rotate-12" : "hover:scale-105 active:scale-95"}`}
 				>
 					<img
 						src={isDragging ? "/spidey/spidey_swing.png" : "/spidey/spidey_idle.png"}
