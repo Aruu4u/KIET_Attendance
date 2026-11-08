@@ -1,5 +1,5 @@
 // Handles Google OAuth callback: exchanges the auth code for tokens
-// and stores the refresh token in a long-lived HTTP-only cookie.
+// and stores the refresh token in a long-lived cookie.
 export default async function handler(req, res) {
   const { code, error } = req.query;
 
@@ -23,7 +23,6 @@ export default async function handler(req, res) {
     `https://${req.headers.host}/api/auth/callback`;
 
   try {
-    // Exchange auth code for access + refresh tokens
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -43,26 +42,22 @@ export default async function handler(req, res) {
       return res.status(400).send(`Token exchange failed: ${tokenData.error_description || tokenData.error}`);
     }
 
-    if (!tokenData.refresh_token) {
+    const refreshToken = tokenData.refresh_token;
+
+    if (!refreshToken) {
+      // If user already approved earlier, Google might only return access_token unless prompt=consent was used
       return res.status(400).send(
-        'No refresh token received. Try visiting /api/auth/google again (revoke access in your Google account first if needed).',
+        'No refresh token received. Please visit /api/auth/google again or remove app access in your Google Account security settings first.',
       );
     }
 
-    // Store refresh token in HTTP-only cookie (90 days)
-    const isLocal = req.headers.host?.includes('localhost');
-    const cookieParts = [
-      `google_refresh_token=${encodeURIComponent(tokenData.refresh_token)}`,
-      'Path=/',
-      'HttpOnly',
-      'SameSite=Lax',
-      'Max-Age=7776000', // 90 days in seconds
+    // Set cookie: HttpOnly, Path=/, Max-Age=1 year (31536000s)
+    const cookieHeader = [
+      `google_refresh_token=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000; Secure`,
+      `gmail_auth_status=true; Path=/; SameSite=Lax; Max-Age=31536000; Secure`,
     ];
-    if (!isLocal) cookieParts.push('Secure');
 
-    res.setHeader('Set-Cookie', cookieParts.join('; '));
-
-    // Redirect back to the app with a success indicator
+    res.setHeader('Set-Cookie', cookieHeader);
     res.redirect(302, '/?gmail_auth=success');
   } catch (err) {
     console.error('OAuth callback error:', err);
