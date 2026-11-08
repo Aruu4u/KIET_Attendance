@@ -1,4 +1,3 @@
-// Get authorized user's profile email address
 function parseCookies(cookieHeader) {
   const cookies = {};
   if (!cookieHeader) return cookies;
@@ -33,13 +32,9 @@ export default async function handler(req, res) {
     });
 
     const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) {
-      return res.status(400).json({ status: 'token_error', data: tokenData });
-    }
-
     const accessToken = tokenData.access_token;
 
-    // Get user profile email address
+    // Fetch user profile info with full error logging
     const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -47,9 +42,10 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       status: 'success',
-      logged_in_as: profile.emailAddress,
-      total_messages: profile.messagesTotal,
-      threads_total: profile.threadsTotal,
+      email: profile.emailAddress || 'unknown',
+      total_messages: profile.messagesTotal ?? 0,
+      threads_total: profile.threadsTotal ?? 0,
+      profile_raw: profile,
     });
   } catch (err) {
     return res.status(500).json({ status: 'error', message: err.message });
