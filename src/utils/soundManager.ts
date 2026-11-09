@@ -37,7 +37,7 @@ const SOUND_PATHS: Record<SoundType, string> = {
 	metal_gear: "/sounds/metal-gear-alert-sound-effect_XKoHReZ.mp3",
 	oh_my_god: "/sounds/oh-my-god-meme.mp3",
 	spiderman: "/sounds/spiderman-meme-song.mp3",
-	web_swing: "/sounds/web-swing.wav",
+	web_swing: "/sounds/spidey_swing.mp3", // User-provided custom swinging sound
 	dexter: "/sounds/dexter.mp3",
 	faaah: "/sounds/faaah.mp3",
 	cat_laugh: "/sounds/cat-laugh-meme-1.mp3",
