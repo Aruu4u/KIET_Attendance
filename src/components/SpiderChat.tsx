@@ -1,7 +1,8 @@
-import { Send, Sparkles, X } from "lucide-react";
+import { Mic, MicOff, Send, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useAppContext } from "../contexts/AppContext";
 import { playSound } from "../utils/soundManager";
+import { spideyVoice } from "../utils/voiceAssistant";
 
 interface Message {
 	role: "user" | "assistant";
@@ -25,13 +26,38 @@ export default function SpiderChat({
 		{
 			role: "assistant",
 			content:
-				"Yo Arsal! I'm SpiderBot 🕷️\n\nAsk me anything: how many classes you can skip, which subject is in the danger zone, or your exact attendance stats! Fr fr no cap 🕸️",
+				"Yo Arsal! I'm SpiderBot 🕷️\n\nAsk me anything: how many classes you can skip, which subject is in the danger zone, or your exact attendance stats! Fr fr no cap 🕸️\n\nTip: Tap the mic or say 'Hey Spidey' to ask by voice! 🎙️",
 		},
 	]);
 	const [input, setInput] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
+	const [isVoiceActive, setIsVoiceActive] = useState(false);
+	const [voiceStatusText, setVoiceStatusText] = useState("Tap mic to speak");
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
+
+	// Voice Assistant integration for SpiderChat
+	useEffect(() => {
+		if (!isOpen) return;
+
+		const unsubscribeStatus = spideyVoice.onStatus((listening, msg) => {
+			setIsVoiceActive(listening);
+			setVoiceStatusText(msg);
+		});
+
+		const unsubscribeQuery = spideyVoice.onQuery((query) => {
+			if (!query.trim()) return;
+			sendDirectMessage(query);
+		});
+
+		setIsVoiceActive(spideyVoice.getIsRunning());
+
+		return () => {
+			unsubscribeStatus();
+			unsubscribeQuery();
+		};
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [isOpen, activeAttendanceData]);
 
 	useEffect(() => {
 		if (isOpen) {
@@ -41,8 +67,8 @@ export default function SpiderChat({
 		}
 	}, [isOpen, messages, isLoading]);
 
-	const sendMessage = async () => {
-		const trimmed = input.trim();
+	const sendDirectMessage = async (textToSend: string) => {
+		const trimmed = textToSend.trim();
 		if (!trimmed || isLoading) return;
 
 		const userMessage: Message = { role: "user", content: trimmed };
@@ -63,22 +89,28 @@ export default function SpiderChat({
 			if (!response.ok) throw new Error("API error");
 
 			const data = await response.json();
-			setMessages((prev) => [
-				...prev,
-				{ role: "assistant", content: data.message },
-			]);
+			const reply = data.message || "Canon event in progress... ask me again!";
+			setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+			spideyVoice.speak(reply);
 		} catch {
 			setMessages((prev) => [
 				...prev,
 				{
 					role: "assistant",
-					content:
-						"Systumm hang ho gaya! 🕸️ Groq API had a hiccup. Try again in a moment!",
+					content: "Systumm hang ho gaya! 🕸️ Groq API had a hiccup. Try again in a moment!",
 				},
 			]);
 		} finally {
 			setIsLoading(false);
 		}
+	};
+
+	const sendMessage = () => sendDirectMessage(input);
+
+	const toggleVoice = () => {
+		const next = spideyVoice.toggle();
+		setIsVoiceActive(next);
+		if (next) setVoiceStatusText("Listening for 'Hey Spidey'... 🎙️");
 	};
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -93,11 +125,7 @@ export default function SpiderChat({
 	return (
 		<div
 			className="fixed bottom-6 right-4 sm:right-6 z-50 flex flex-col bg-white border-4 border-black rounded-2xl shadow-[8px_8px_0_#000] spider-chat-pop"
-			style={{
-				width: "360px",
-				maxWidth: "calc(100vw - 32px)",
-				height: "500px",
-			}}
+			style={{ width: "360px", maxWidth: "calc(100vw - 32px)", height: "500px" }}
 		>
 			{/* Header */}
 			<div className="flex items-center justify-between px-4 py-3 bg-red-600 text-white border-b-3 border-black rounded-t-xl select-none">
@@ -113,14 +141,43 @@ export default function SpiderChat({
 						</p>
 					</div>
 				</div>
-				<button
-					type="button"
-					onClick={onClose}
-					className="text-white hover:text-black font-black p-1 cursor-pointer transition-colors"
-				>
-					<X size={18} />
-				</button>
+				<div className="flex items-center gap-2">
+					<button
+						type="button"
+						onClick={toggleVoice}
+						title={isVoiceActive ? "Voice Active ('Hey Spidey')" : "Enable 'Hey Spidey' Voice"}
+						className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black uppercase border-2 border-black transition-all cursor-pointer ${
+							isVoiceActive
+								? "bg-yellow-300 text-black animate-pulse shadow-sm"
+								: "bg-red-800 text-white hover:bg-red-700"
+						}`}
+					>
+						{isVoiceActive ? <Mic size={12} /> : <MicOff size={12} />}
+						<span>{isVoiceActive ? "Listening" : "Hey Spidey"}</span>
+					</button>
+					<button
+						type="button"
+						onClick={onClose}
+						className="text-white hover:text-black font-black p-1 cursor-pointer transition-colors"
+					>
+						<X size={18} />
+					</button>
+				</div>
 			</div>
+
+			{/* Voice Banner when active */}
+			{isVoiceActive && (
+				<div className="px-3 py-1 bg-yellow-200 text-black border-b-2 border-black flex items-center justify-between text-[11px] font-bold">
+					<span className="truncate">🎙️ {voiceStatusText}</span>
+					<button
+						type="button"
+						onClick={toggleVoice}
+						className="text-xs font-black hover:text-red-600 cursor-pointer ml-2"
+					>
+						✕
+					</button>
+				</div>
+			)}
 
 			{/* Messages List */}
 			<div className="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50 custom-table-scroll">
@@ -166,10 +223,22 @@ export default function SpiderChat({
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
 						onKeyDown={handleKeyDown}
-						placeholder="Ask about your attendance..."
+						placeholder="Ask or say 'Hey Spidey'..."
 						disabled={isLoading}
 						className="flex-1 text-xs font-bold bg-gray-50 border-2 border-black rounded-xl px-3 py-2 outline-none focus:bg-white shadow-[2px_2px_0_#000]"
 					/>
+					<button
+						type="button"
+						onClick={toggleVoice}
+						title="Voice Command ('Hey Spidey')"
+						className={`px-2.5 py-2 rounded-xl border-2 border-black shadow-[2px_2px_0_#000] cursor-pointer transition-all ${
+							isVoiceActive
+								? "bg-yellow-300 text-black animate-pulse"
+								: "bg-gray-100 text-black hover:bg-gray-200"
+						}`}
+					>
+						{isVoiceActive ? <Mic size={15} /> : <MicOff size={15} />}
+					</button>
 					<button
 						type="button"
 						onClick={sendMessage}

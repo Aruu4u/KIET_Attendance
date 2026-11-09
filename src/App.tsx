@@ -157,6 +157,7 @@ function App() {
 					<SpideyCompanion
 						attendanceData={attendanceData}
 						onOpenChat={() => setIsChatOpen(true)}
+						isChatOpen={isChatOpen}
 					/>
 
 					{/* SpiderBot AI Chat Dialog (Opens seamlessly from Spidey) */}
