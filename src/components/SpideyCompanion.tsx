@@ -18,30 +18,49 @@ export default function SpideyCompanion({
 	attendanceData,
 	onOpenChat,
 }: SpideyCompanionProps) {
-	const [speech, setSpeech] = useState<string>("Pull me back like a slingshot to launch! 🏹🕸️");
+	const [speech, setSpeech] = useState<string>("Pull me back like a rubber band to launch! 🏹🕸️");
 	const [isPeeping, setIsPeeping] = useState<boolean>(true);
 	const [activeMeme, setActiveMeme] = useState<PopMeme | null>(null);
 
-	// Spidey Position on screen (in px)
-	const [pos, setPos] = useState<{ x: number; y: number }>({ x: 40, y: 350 });
-	const [isAiming, setIsAiming] = useState<boolean>(false);
-	const [isFlying, setIsFlying] = useState<boolean>(false);
-	const [rotation, setRotation] = useState<number>(0);
-	const [isHangingFromCeiling, setIsHangingFromCeiling] = useState<boolean>(false);
+	// Screen Boundary Bounds
+	const SPRITE_SIZE = 76;
+	const TOP_CEILING_ZONE = 75;
 
-	// Slingshot / Web Mechanics:
-	// 1. Web Anchor on top ceiling: shoots from Spidey to top wall on hold
-	const [webAnchor, setWebAnchor] = useState<{ x: number; y: number } | null>(null);
-	// 2. Growth percentage of web shooting to ceiling (0 to 1)
+	// Position strictly bounded inside screen
+	const [pos, setPos] = useState<{ x: number; y: number }>({ x: 30, y: 320 });
+	const [isDragging, setIsDragging] = useState<boolean>(false);
+	const [isSwingingArc, setIsSwingingArc] = useState<boolean>(false);
+	const [rotation, setRotation] = useState<number>(0);
+	const [poseState, setPoseState] = useState<"idle" | "swing" | "top_hang">("idle");
+
+	// Web Anchor pinned to the top ceiling
+	const [ceilingAnchor, setCeilingAnchor] = useState<{ x: number; y: number } | null>(null);
 	const [webShootProgress, setWebShootProgress] = useState<number>(0);
 
 	const dragStartOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 	const dragDistance = useRef<number>(0);
-	const dragHoldPos = useRef<{ x: number; y: number }>({ x: 40, y: 350 });
-	const animationFrameRef = useRef<number | null>(null);
+	const swingAnimRef = useRef<number | null>(null);
 	const shootAnimRef = useRef<number | null>(null);
 
-	// Actual Attendance evaluation: triggers ONLY based on your REAL attendance figures
+	// Strict screen bounds clamp: guarantees avatar NEVER moves outside the visible viewport
+	const clampPosition = (x: number, y: number) => {
+		const screenW = typeof window !== "undefined" ? window.innerWidth : 380;
+		const screenH = typeof window !== "undefined" ? window.innerHeight : 720;
+		return {
+			x: Math.max(14, Math.min(screenW - SPRITE_SIZE - 14, x)),
+			y: Math.max(16, Math.min(screenH - SPRITE_SIZE - 95, y)),
+		};
+	};
+
+	// Clean up all animation frames on unmount only
+	useEffect(() => {
+		return () => {
+			if (swingAnimRef.current) cancelAnimationFrame(swingAnimRef.current);
+			if (shootAnimRef.current) cancelAnimationFrame(shootAnimRef.current);
+		};
+	}, []);
+
+	// Attendance sound checks
 	useEffect(() => {
 		if (!attendanceData) return;
 		try {
@@ -114,23 +133,30 @@ export default function SpideyCompanion({
 		}
 	}, [activeMeme]);
 
-	// Slingshot Pull & Drag Listener
+	// Mouse & Touch Dragging Listener
 	useEffect(() => {
 		const handleMove = (clientX: number, clientY: number) => {
-			if (!isAiming) return;
+			if (!isDragging) return;
 			dragDistance.current += 1;
 
-			const newX = clientX - dragStartOffset.current.x;
-			const newY = clientY - dragStartOffset.current.y;
-			setPos({ x: newX, y: newY });
-			dragHoldPos.current = { x: newX, y: newY };
+			const rawX = clientX - dragStartOffset.current.x;
+			const rawY = clientY - dragStartOffset.current.y;
+			const clamped = clampPosition(rawX, rawY);
+			setPos(clamped);
 
-			// Calculate tension angle based on stretch away from anchor
-			if (webAnchor) {
-				const dx = webAnchor.x - (newX + 38);
-				const dy = webAnchor.y - (newY + 20);
-				const angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+			// Real-time rubber band angle & stretch reaction
+			if (ceilingAnchor) {
+				const pullDx = ceilingAnchor.x - (clamped.x + 36);
+				const pullDy = clamped.y + 18 - ceilingAnchor.y;
+				const angle = (Math.atan2(pullDx, pullDy) * 180) / Math.PI;
 				setRotation(Math.max(-50, Math.min(50, angle)));
+
+				const dist = Math.hypot(pullDx, pullDy);
+				if (dist > 180) {
+					setSpeech("MAX TENSION! Release to slingshot! 💥");
+				} else {
+					setSpeech("Stretch back to load elastic energy! 🏹🕸️");
+				}
 			}
 		};
 
@@ -144,131 +170,151 @@ export default function SpideyCompanion({
 			}
 		};
 
-		const handleRelease = (clientX: number, clientY: number) => {
-			if (!isAiming) return;
-			setIsAiming(false);
+		const handleEnd = (clientX: number, clientY: number) => {
+			if (!isDragging) return;
+			setIsDragging(false);
 
-			const currentX = clientX - dragStartOffset.current.x;
-			const currentY = clientY - dragStartOffset.current.y;
+			const currentRaw = {
+				x: clientX - dragStartOffset.current.x,
+				y: clientY - dragStartOffset.current.y,
+			};
+			const current = clampPosition(currentRaw.x, currentRaw.y);
 
-			// Quick tap without pulling back -> open chat
+			// 1. Quick click without drag (< 6px movement) -> open chat or login prompt
 			if (dragDistance.current < 6) {
-				setWebAnchor(null);
+				setCeilingAnchor(null);
 				setWebShootProgress(0);
+				setPoseState("idle");
+				setRotation(0);
 				handleSingleTap();
 				return;
 			}
 
-			// Slingshot Release: calculate stretch vector
-			if (webAnchor) {
-				const stretchX = webAnchor.x - (currentX + 38);
-				const stretchY = webAnchor.y - (currentY + 20);
-				const stretchDist = Math.sqrt(stretchX * stretchX + stretchY * stretchY);
-
-				// Launch forward like a rubber band!
-				if (stretchDist > 40) {
-					setIsFlying(true);
-					// Play custom spidey_swing.mp3 on slingshot launch!
-					playSound("web_swing", 0.65);
-					setSpeech("YEEEE-HAW! Slingshot launch! 🚀🕸️");
-
-					// Physics impulse vector
-					const power = Math.min(stretchDist * 0.18, 38);
-					const unitX = stretchX / (stretchDist || 1);
-					const unitY = stretchY / (stretchDist || 1);
-
-					let vx = unitX * power * 1.5;
-					let vy = unitY * power * 1.5;
-					let currX = currentX;
-					let currY = currentY;
-
-					const screenW = window.innerWidth;
-					const screenH = window.innerHeight;
-
-					// Animate flight along trajectory
-					const flyStep = () => {
-						currX += vx;
-						currY += vy;
-						vy += 0.85; // Gravity
-						vx *= 0.985; // Air resistance
-
-						// Ceiling collision -> hang from ceiling!
-						if (currY <= 40) {
-							setPos({ x: currX, y: 10 });
-							setIsHangingFromCeiling(true);
-							setIsFlying(false);
-							setWebAnchor(null);
-							setWebShootProgress(0);
-							setRotation(0);
-							setSpeech("Stuck to the ceiling wall! 🧗‍♂️🕸️");
-							return;
-						}
-
-						// Side walls collision
-						if (currX <= 15) {
-							setPos({ x: 10, y: Math.max(60, Math.min(screenH - 120, currY)) });
-							setIsHangingFromCeiling(false);
-							setIsFlying(false);
-							setWebAnchor(null);
-							setWebShootProgress(0);
-							setRotation(90);
-							setSpeech("Landed on the left wall! 🧗‍♂️");
-							return;
-						}
-						if (currX >= screenW - 85) {
-							setPos({ x: screenW - 75, y: Math.max(60, Math.min(screenH - 120, currY)) });
-							setIsHangingFromCeiling(false);
-							setIsFlying(false);
-							setWebAnchor(null);
-							setWebShootProgress(0);
-							setRotation(-90);
-							setSpeech("Landed on the right wall! 🕷️");
-							return;
-						}
-
-						// Floor collision
-						if (currY >= screenH - 130) {
-							setPos({ x: currX, y: screenH - 100 });
-							setIsHangingFromCeiling(false);
-							setIsFlying(false);
-							setWebAnchor(null);
-							setWebShootProgress(0);
-							setRotation(0);
-							setSpeech("Landed on the floor! 🍕");
-							return;
-						}
-
-						setPos({ x: currX, y: currY });
-						animationFrameRef.current = requestAnimationFrame(flyStep);
-					};
-
-					animationFrameRef.current = requestAnimationFrame(flyStep);
-					return;
-				}
+			// 2. If dropped right at the TOP CEILING ZONE (y <= TOP_CEILING_ZONE) -> Hang upside down from ceiling
+			if (current.y <= TOP_CEILING_ZONE) {
+				setCeilingAnchor(null);
+				setWebShootProgress(0);
+				setPos({ x: current.x, y: 16 });
+				setPoseState("top_hang"); // Uses Top_wall_hang_new.png!
+				setRotation(0);
+				setSpeech("Chillin' upside down on the ceiling! 🧗‍♂️🕸️");
+				setIsPeeping(true);
+				return;
 			}
 
-			// Mild drag fallback
-			setWebAnchor(null);
+			// 3. Mid-air release with anchor -> RUBBER-BAND SLINGSHOT & SPIDER-MAN SWING ARC!
+			if (ceilingAnchor) {
+				setIsSwingingArc(true);
+				playSound("web_swing", 0.75); // User's custom swing sound plays when launched!
+				setSpeech("SWIIIIIING! 🕸️💨");
+
+				const anchor = { ...ceilingAnchor };
+				const pullDx = anchor.x - (current.x + 36);
+				const pullDy = anchor.y - (current.y + 18);
+				const pullDist = Math.hypot(pullDx, pullDy);
+
+				// Rubber band launch impulse: shoots towards & past the anchor forward
+				let vx = (pullDx / Math.max(pullDist, 1)) * Math.min(24, Math.max(9, pullDist * 0.13));
+				let vy = (pullDy / Math.max(pullDist, 1)) * Math.min(22, Math.max(7, pullDist * 0.11));
+
+				let currX = current.x;
+				let currY = current.y;
+				const restRope = Math.max(90, pullDist * 0.82);
+				let frame = 0;
+				const maxFrames = 75; // ~1.25 seconds dynamic swing
+
+				const swingLoop = () => {
+					frame++;
+
+					if (frame < 50) {
+						// Web pulls towards ceiling anchor like a pendulum rope
+						const distToAnchor = Math.hypot(currX + 36 - anchor.x, currY + 18 - anchor.y);
+						if (distToAnchor > restRope) {
+							const tension = (distToAnchor - restRope) * 0.085;
+							const ux = (currX + 36 - anchor.x) / distToAnchor;
+							const uy = (currY + 18 - anchor.y) / distToAnchor;
+							vx -= ux * tension;
+							vy -= uy * tension;
+						}
+						vy += 0.45; // Gravity
+					} else {
+						// Web detaches at peak forward flight!
+						if (frame === 50) {
+							setCeilingAnchor(null);
+							setWebShootProgress(0);
+						}
+						vy += 0.6; // Gravity settles Spidey down
+					}
+
+					vx *= 0.985;
+					vy *= 0.985;
+					currX += vx;
+					currY += vy;
+
+					// STRICT SCREEN CLAMPING: Spidey will never leave the screen bounds
+					const bounded = clampPosition(currX, currY);
+					if (bounded.x !== currX) {
+						vx = -vx * 0.35; // Soft bounce off screen sides
+						currX = bounded.x;
+					}
+					if (bounded.y !== currY) {
+						vy = -vy * 0.2; // Bounce or land on screen floor
+						currY = bounded.y;
+					}
+
+					setPos({ x: currX, y: currY });
+
+					// Dynamic rotation along movement trajectory
+					const velAngle = (Math.atan2(vx, vy) * 180) / Math.PI;
+					setRotation(Math.max(-45, Math.min(45, (velAngle - 90) * 0.45)));
+
+					// SWING FINISHED: Smooth landing and ALWAYS RESTORE IDLE POSE!
+					if (frame >= maxFrames || (frame > 40 && Math.abs(vx) < 0.7 && Math.abs(vy) < 1.0)) {
+						if (swingAnimRef.current) cancelAnimationFrame(swingAnimRef.current);
+						swingAnimRef.current = null;
+						setIsSwingingArc(false);
+						setCeilingAnchor(null);
+						setWebShootProgress(0);
+						setRotation(0);
+						setPoseState("idle"); // Normal posture restored!
+						setSpeech("Smooth landing! 🍕🕸️");
+						setIsPeeping(true);
+						return;
+					}
+
+					swingAnimRef.current = requestAnimationFrame(swingLoop);
+				};
+
+				swingAnimRef.current = requestAnimationFrame(swingLoop);
+				return;
+			}
+
+			// Fallback: normal release
+			setCeilingAnchor(null);
 			setWebShootProgress(0);
+			setPoseState("idle");
 			setRotation(0);
+			setIsPeeping(true);
 		};
 
 		const handleMouseUp = (e: MouseEvent) => {
-			handleRelease(e.clientX, e.clientY);
+			handleEnd(e.clientX, e.clientY);
 		};
 
 		const handleTouchEnd = (e: TouchEvent) => {
 			const touch = e.changedTouches[0];
 			if (touch) {
-				handleRelease(touch.clientX, touch.clientY);
+				handleEnd(touch.clientX, touch.clientY);
 			} else {
-				setIsAiming(false);
-				setWebAnchor(null);
+				setIsDragging(false);
+				setCeilingAnchor(null);
 				setWebShootProgress(0);
+				setPoseState("idle");
+				setRotation(0);
 			}
 		};
 
-		if (isAiming) {
+		if (isDragging) {
 			window.addEventListener("mousemove", handleMouseMove);
 			window.addEventListener("mouseup", handleMouseUp);
 			window.addEventListener("touchmove", handleTouchMove, { passive: false });
@@ -281,11 +327,11 @@ export default function SpideyCompanion({
 			window.removeEventListener("touchmove", handleTouchMove);
 			window.removeEventListener("touchend", handleTouchEnd);
 			window.removeEventListener("touchcancel", handleTouchEnd);
-			if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+			// Do NOT cancel swingAnimRef here so the swing trajectory finishes cleanly even after dragging ends!
 		};
-	}, [isAiming, webAnchor, attendanceData]);
+	}, [isDragging, ceilingAnchor, attendanceData]);
 
-	// Single tap handler: check if logged in or on home screen
+	// Single tap handler
 	const handleSingleTap = () => {
 		if (!attendanceData) {
 			setSpeech("Please login first, then we can chat! 🔒🕸️");
@@ -298,42 +344,38 @@ export default function SpideyCompanion({
 		}
 	};
 
-	// Start Hold / Slingshot Aim: SHOOT WEB UP TO THE TOP WALL!
-	const startHold = (clientX: number, clientY: number) => {
-		if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+	// Start dragging: Shoot web shooter up to ceiling & switch to 3D swinging avatar
+	const startDrag = (clientX: number, clientY: number) => {
+		if (swingAnimRef.current) cancelAnimationFrame(swingAnimRef.current);
 		if (shootAnimRef.current) cancelAnimationFrame(shootAnimRef.current);
 
 		dragDistance.current = 0;
-		setIsAiming(true);
-		setIsFlying(false);
-		setIsHangingFromCeiling(false);
+		setIsDragging(true);
+		setIsSwingingArc(false);
+		setPoseState("swing"); // 3D swing pose activated!
 		setRotation(0);
 
 		dragStartOffset.current = {
 			x: clientX - pos.x,
 			y: clientY - pos.y,
 		};
-		dragHoldPos.current = { x: pos.x, y: pos.y };
 
-		// Target anchor right on the ceiling directly above Spidey's current spot
-		const targetAnchor = {
-			x: Math.max(30, Math.min(window.innerWidth - 30, pos.x + 38)),
+		// Pinned anchor on the ceiling directly above the swing start
+		const anchor = {
+			x: Math.max(30, Math.min(window.innerWidth - 30, pos.x + 36)),
 			y: 0,
 		};
-		setWebAnchor(targetAnchor);
-		setWebShootProgress(0.1);
+		setCeilingAnchor(anchor);
+		setWebShootProgress(0.15);
 
-		// Animate web shooter shooting from Spidey up to the top wall!
-		let start = performance.now();
-		const animDuration = 180; // 180ms rapid web shot
+		// Rapid visual web shot line extending to ceiling
+		const start = performance.now();
+		const animDuration = 120;
 		const animateShot = (now: number) => {
-			const elapsed = now - start;
-			const p = Math.min(1, elapsed / animDuration);
+			const p = Math.min(1, (now - start) / animDuration);
 			setWebShootProgress(p);
 			if (p < 1) {
 				shootAnimRef.current = requestAnimationFrame(animateShot);
-			} else {
-				setSpeech("Web locked on ceiling! Now pull back to slingshot! 🏹💥");
 			}
 		};
 		shootAnimRef.current = requestAnimationFrame(animateShot);
@@ -341,76 +383,71 @@ export default function SpideyCompanion({
 
 	const handleMouseDown = (e: React.MouseEvent) => {
 		e.preventDefault();
-		startHold(e.clientX, e.clientY);
+		startDrag(e.clientX, e.clientY);
 	};
 
 	const handleTouchStart = (e: React.TouchEvent) => {
 		if (e.touches.length > 0) {
 			const touch = e.touches[0];
-			startHold(touch.clientX, touch.clientY);
+			startDrag(touch.clientX, touch.clientY);
 		}
 	};
 
-	// Current hand coordinates
-	const handX = pos.x + 38;
-	const handY = pos.y + 20;
+	// Hand coordinates for web attachment
+	const handX = pos.x + 36;
+	const handY = pos.y + 18;
 
-	// Calculate end of shooting web line
-	const currentWebTip = webAnchor
+	// Web tip while shooting/attached
+	const currentWebTip = ceilingAnchor
 		? {
-				x: handX + (webAnchor.x - handX) * webShootProgress,
-				y: handY + (webAnchor.y - handY) * webShootProgress,
+				x: handX + (ceilingAnchor.x - handX) * webShootProgress,
+				y: handY + (ceilingAnchor.y - handY) * webShootProgress,
 		  }
 		: null;
 
-	// Calculate tension stretch distance
-	const stretchDistance = webAnchor
-		? Math.sqrt(Math.pow(webAnchor.x - handX, 2) + Math.pow(webAnchor.y - handY, 2))
-		: 0;
-
 	return (
 		<>
-			{/* Slingshot Rubber Band Web SVG */}
-			{isAiming && webAnchor && currentWebTip && (
+			{/* Web strand anchored to ceiling */}
+			{(isDragging || isSwingingArc) && ceilingAnchor && currentWebTip && (
 				<svg
 					className="fixed inset-0 pointer-events-none z-40 w-full h-full"
 					style={{ filter: "drop-shadow(0 0 3px rgba(255,255,255,0.95))" }}
 				>
-					{/* Top Ceiling Web Splat Anchor (appears when web reaches top) */}
-					{webShootProgress >= 0.85 && (
+					{/* Ceiling Web Splat Anchor */}
+					{webShootProgress >= 0.8 && (
 						<g>
 							<circle
-								cx={webAnchor.x}
-								cy={webAnchor.y + 4}
-								r="9"
-								fill="#f8fafc"
+								cx={ceilingAnchor.x}
+								cy={ceilingAnchor.y + 4}
+								r="8"
+								fill="#ffffff"
 								stroke="#0f172a"
 								strokeWidth="2.5"
 							/>
-							<circle cx={webAnchor.x} cy={webAnchor.y + 4} r="3.5" fill="#94a3b8" />
-							<circle cx={webAnchor.x - 7} cy={webAnchor.y + 3} r="4" fill="#f8fafc" />
-							<circle cx={webAnchor.x + 7} cy={webAnchor.y + 2} r="4" fill="#f8fafc" />
+							<circle cx={ceilingAnchor.x} cy={ceilingAnchor.y + 4} r="3" fill="#94a3b8" />
+							<circle cx={ceilingAnchor.x - 7} cy={ceilingAnchor.y + 2} r="3.5" fill="#ffffff" />
+							<circle cx={ceilingAnchor.x + 7} cy={ceilingAnchor.y + 2} r="3.5" fill="#ffffff" />
 						</g>
 					)}
 
-					{/* Thick stretchy web line (thins down slightly as stretched like rubber) */}
+					{/* Outer taut elastic web strand */}
 					<line
 						x1={handX}
 						y1={handY}
 						x2={currentWebTip.x}
 						y2={currentWebTip.y}
-						stroke="#64748b"
-						strokeWidth={Math.max(2, 4.5 - stretchDistance * 0.005)}
+						stroke="#0f172a"
+						strokeWidth="4"
 					/>
-					{/* Inner glow core */}
+					{/* Bright elastic inner core */}
 					<line
 						x1={handX}
 						y1={handY}
 						x2={currentWebTip.x}
 						y2={currentWebTip.y}
 						stroke="#ffffff"
-						strokeWidth={Math.max(1, 2.5 - stretchDistance * 0.003)}
-						strokeDasharray="6 3"
+						strokeWidth="2"
+						strokeDasharray="6 2"
 					/>
 				</svg>
 			)}
@@ -455,25 +492,25 @@ export default function SpideyCompanion({
 				</div>
 			)}
 
-			{/* Spidey Avatar: Pull-to-Slingshot + 3D Fly + Top Wall Hang */}
+			{/* Spidey Avatar: Strictly bounded inside screen, Spider-Man pendulum swing, automatic reset to idle */}
 			<div
 				style={{
 					left: `${pos.x}px`,
 					top: `${pos.y}px`,
 					transform: `rotate(${rotation}deg)`,
-					transformOrigin: "38px 20px",
-					transition: isAiming || isFlying ? "none" : "all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+					transformOrigin: "36px 18px",
+					transition: isDragging || isSwingingArc ? "none" : "all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
 					touchAction: "none",
 				}}
 				onMouseDown={handleMouseDown}
 				onTouchStart={handleTouchStart}
 				className="fixed z-40 select-none cursor-grab active:cursor-grabbing pointer-events-auto"
-				title="Hold & pull back to slingshot across the screen!"
+				title="Pull back like a rubber band to launch & swing! Drop at ceiling to hang upside down!"
 			>
 				{/* Speech bubble */}
 				<div
 					className={`absolute ${
-						isHangingFromCeiling ? "top-full mt-2" : "bottom-full mb-2"
+						poseState === "top_hang" ? "top-full mt-2" : "bottom-full mb-2"
 					} left-1/2 -translate-x-1/2 w-48 sm:w-52 bg-white text-black p-2.5 rounded-2xl border-3 border-black shadow-[4px_4px_0_#000] text-xs font-black leading-snug transition-all duration-300 pointer-events-none ${
 						isPeeping ? "opacity-100 scale-100" : "opacity-0 scale-75"
 					}`}
@@ -482,36 +519,34 @@ export default function SpideyCompanion({
 					<p>{speech}</p>
 					<div
 						className={`absolute ${
-							isHangingFromCeiling
+							poseState === "top_hang"
 								? "-top-2.5 border-t-3 border-l-3"
 								: "-bottom-2.5 border-b-3 border-r-3"
 						} left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white border-black rotate-45`}
 					/>
 				</div>
 
-				{/* 3D Action Avatar with stretch & launch physics:
-				    1. When hung on top ceiling wall: uses updated Top_wall_hang_new.png!
-				    2. When pulling slingshot or flying forward: uses updated spidey_swing_new.png with 3D isometric tilt!
-				    3. When idle on floor: uses spidey_idle.png
+				{/* Avatar Sprite Transitions:
+				    - poseState === "top_hang": Top_wall_hang_new.png
+				    - poseState === "swing": spidey_swing_new.png with 3D perspective
+				    - poseState === "idle": automatically resets back to spidey_idle.png!
 				*/}
 				<div
-					className={`w-20 h-20 sm:w-24 sm:h-24 filter transition-all duration-150 ${
-						isAiming
-							? "scale-105 drop-shadow-[0_12px_16px_rgba(0,0,0,0.45)] [transform:perspective(500px)_rotateX(20deg)_rotateY(-15deg)]"
-							: isFlying
-							? "scale-120 drop-shadow-[0_20px_25px_rgba(0,0,0,0.6)] [transform:perspective(500px)_rotateX(25deg)_rotateY(-20deg)_scale(1.15)]"
+					className={`w-18 h-18 sm:w-20 sm:h-20 filter transition-all duration-200 ${
+						poseState === "swing"
+							? "scale-110 drop-shadow-[0_14px_18px_rgba(0,0,0,0.5)] [transform:perspective(500px)_rotateX(20deg)_rotateY(-15deg)]"
 							: "drop-shadow-[0_6px_10px_rgba(0,0,0,0.35)] hover:scale-105 active:scale-95"
 					}`}
 				>
 					<img
 						src={
-							isHangingFromCeiling
+							poseState === "top_hang"
 								? "/spidey/Top_wall_hang_new.png"
-								: isAiming || isFlying
+								: poseState === "swing"
 								? "/spidey/spidey_swing_new.png"
 								: "/spidey/spidey_idle.png"
 						}
-						alt="Spidey Avatar"
+						alt="Spidey Companion"
 						className="w-full h-full object-contain pixelated pointer-events-none"
 					/>
 				</div>

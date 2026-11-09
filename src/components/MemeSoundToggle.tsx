@@ -1,6 +1,6 @@
 import { Volume2, VolumeX } from "lucide-react";
 import { useEffect, useState } from "react";
-import { isMuted, setMuted } from "../utils/soundManager";
+import { isMuted, setMuted, stopAllAudio } from "../utils/soundManager";
 
 export default function MemeSoundToggle() {
 	const [muted, setMutedState] = useState<boolean>(() => isMuted());
@@ -15,6 +15,9 @@ export default function MemeSoundToggle() {
 		const next = !muted;
 		setMutedState(next);
 		setMuted(next);
+		if (next) {
+			stopAllAudio();
+		}
 	};
 
 	return (
