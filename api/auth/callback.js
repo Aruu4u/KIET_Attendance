@@ -1,5 +1,5 @@
 // Handles Google OAuth callback: exchanges the auth code for tokens
-// and stores the refresh token in a long-lived cookie.
+// and stores the refresh token in a long-lived cookie + delivers to localStorage
 export default async function handler(req, res) {
   const { code, error } = req.query;
 
@@ -45,20 +45,48 @@ export default async function handler(req, res) {
     const refreshToken = tokenData.refresh_token;
 
     if (!refreshToken) {
-      // If user already approved earlier, Google might only return access_token unless prompt=consent was used
       return res.status(400).send(
-        'No refresh token received. Please visit /api/auth/google again or remove app access in your Google Account security settings first.',
+        'No refresh token received. Please visit /api/auth/google again with prompt=consent.',
       );
     }
 
-    // Set cookie: HttpOnly, Path=/, Max-Age=1 year (31536000s)
+    // Set cookie on the domain: SameSite=None + Secure + 1 year max-age
     const cookieHeader = [
-      `google_refresh_token=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000; Secure`,
-      `gmail_auth_status=true; Path=/; SameSite=Lax; Max-Age=31536000; Secure`,
+      `google_refresh_token=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=None; Max-Age=31536000; Secure`,
+      `gmail_auth_status=true; Path=/; SameSite=None; Max-Age=31536000; Secure`,
     ];
 
     res.setHeader('Set-Cookie', cookieHeader);
-    res.redirect(302, '/?gmail_auth=success');
+
+    // Render a lightweight HTML page that writes the token into localStorage and cookies
+    // so mobile browsers never lose it even if third-party cookies are blocked!
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Gmail Authorized</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="background:#0f172a;color:#fff;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+          <div style="text-align:center;padding:20px;">
+            <div style="font-size:40px;margin-bottom:10px;">✅</div>
+            <h2 style="margin:0 0 8px 0;font-size:20px;">Gmail Connected!</h2>
+            <p style="color:#94a3b8;font-size:14px;margin:0;">Saving your token and heading back...</p>
+          </div>
+          <script>
+            try {
+              localStorage.setItem('google_refresh_token', ${JSON.stringify(refreshToken)});
+              localStorage.setItem('gmail_authorized', 'true');
+            } catch (e) {
+              console.error(e);
+            }
+            window.location.replace('/?gmail_auth=success');
+          </script>
+        </body>
+      </html>
+    `;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(html);
   } catch (err) {
     console.error('OAuth callback error:', err);
     res.status(500).send('Internal server error during OAuth callback.');

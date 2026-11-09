@@ -230,9 +230,11 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 			setOtpStatus(`📧 Fetching OTP from Gmail... (${attempts}/${MAX_ATTEMPTS})`);
 
 			try {
-				const res = await fetch(
-					`/api/get-otp?after=${loginStartTimeRef.current}`,
-				);
+				const localToken = localStorage.getItem("google_refresh_token") || "";
+				const url = `/api/get-otp?after=${loginStartTimeRef.current}${localToken ? `&refresh_token=${encodeURIComponent(localToken)}` : ""}`;
+				const res = await fetch(url, {
+					headers: localToken ? { "x-refresh-token": localToken } : {},
+				});
 				const data = await res.json();
 
 				if (cancelled) return;

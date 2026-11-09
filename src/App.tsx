@@ -47,17 +47,34 @@ function App() {
 	const [gmailAuthorized, setGmailAuthorized] = useState<boolean>(false);
 	const hasSelectedLiveRef = useRef<boolean>(false);
 
-	// Detect Gmail auth success from URL param or check status
+	// Detect Gmail auth success from URL param, localStorage, or API check
 	useEffect(() => {
 		const params = new URLSearchParams(window.location.search);
 		if (params.get("gmail_auth") === "success") {
 			setGmailAuthorized(true);
+			try {
+				localStorage.setItem("gmail_authorized", "true");
+			} catch {}
 			window.history.replaceState({}, document.title, window.location.pathname);
+		} else {
+			try {
+				if (localStorage.getItem("gmail_authorized") === "true") {
+					setGmailAuthorized(true);
+				}
+			} catch {}
 		}
-		fetch("/api/get-otp")
+
+		// Also check backend to verify
+		const localToken = localStorage.getItem("google_refresh_token") || "";
+		fetch(`/api/get-otp${localToken ? `?refresh_token=${encodeURIComponent(localToken)}` : ""}`)
 			.then((r) => r.json())
 			.then((d) => {
-				if (d && d.status !== "unauthorized") setGmailAuthorized(true);
+				if (d && d.status !== "unauthorized") {
+					setGmailAuthorized(true);
+					try {
+						localStorage.setItem("gmail_authorized", "true");
+					} catch {}
+				}
 			})
 			.catch(() => {});
 	}, []);

@@ -32,11 +32,16 @@ function getEmailBody(payload) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-refresh-token');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const cookies = parseCookies(req.headers.cookie);
-  const refreshToken = cookies.google_refresh_token;
+  // Support refresh token from Cookie, Query param, or Custom Header (ideal for Mobile Web/Safari)
+  const refreshToken =
+    cookies.google_refresh_token ||
+    req.headers['x-refresh-token'] ||
+    req.query.refresh_token;
 
   if (!refreshToken) {
     return res.status(401).json({
@@ -69,8 +74,7 @@ export default async function handler(req, res) {
 
     const accessToken = tokenData.access_token;
 
-    // Flexible query: matches kiet OR cybervidya OR "Login OTP"
-    // Search up to 3 most recent messages so we never miss it even with slight time discrepancies
+    // Flexible search query: matches cybervidya OR "Cyber Vidya" OR "Login OTP"
     const query = '(from:cybervidya OR "Cyber Vidya" OR "Login OTP")';
 
     const searchRes = await fetch(
@@ -84,7 +88,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ status: 'not_found', message: 'No matching OTP email found in Gmail.' });
     }
 
-    // Iterate through the latest 3 candidate emails to find the 6-digit OTP
+    // Iterate through recent candidate messages
     for (const msgSummary of searchData.messages) {
       const msgRes = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgSummary.id}?format=full`,
@@ -96,10 +100,8 @@ export default async function handler(req, res) {
       const body = getEmailBody(message.payload);
       const fullText = `${snippet} ${body}`;
 
-      // Check if message is relevant
       const isRelevant = /cyber\s*vidya|login\s*otp|kiet/i.test(fullText);
       if (isRelevant) {
-        // Find 6 digit code
         const otpMatch = fullText.match(/\b(\d{6})\b/);
         if (otpMatch) {
           return res.status(200).json({ status: 'success', otp: otpMatch[1] });
