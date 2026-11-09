@@ -11,10 +11,16 @@ interface Message {
 interface SpiderChatProps {
 	isOpen: boolean;
 	onClose: () => void;
+	attendanceData?: unknown;
 }
 
-export default function SpiderChat({ isOpen, onClose }: SpiderChatProps) {
-	const { attendanceData } = useAppContext();
+export default function SpiderChat({
+	isOpen,
+	onClose,
+	attendanceData: propAttendanceData,
+}: SpiderChatProps) {
+	const { attendanceData: contextAttendanceData } = useAppContext();
+	const activeAttendanceData = propAttendanceData || contextAttendanceData;
 	const [messages, setMessages] = useState<Message[]>([
 		{
 			role: "assistant",
@@ -50,7 +56,7 @@ export default function SpiderChat({ isOpen, onClose }: SpiderChatProps) {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					messages: [...messages, userMessage],
-					attendanceData,
+					attendanceData: activeAttendanceData,
 				}),
 			});
 

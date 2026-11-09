@@ -64,20 +64,17 @@ export default function SpideyCompanion({
 	useEffect(() => {
 		if (!attendanceData) return;
 		try {
-			const data = attendanceData as {
-				attendanceCourseComponentInfoList?: Array<{
-					attendanceCourseComponentNameInfoList?: Array<{
-						totalPresentCount?: number;
-						totalClassCount?: number;
-					}>;
-				}>;
-			};
+			const effective = (attendanceData as any)?.attendanceCourseComponentInfoList
+				? (attendanceData as any)
+				: (attendanceData as any)?.data;
 			let totalPresent = 0;
 			let totalClasses = 0;
-			data.attendanceCourseComponentInfoList?.forEach((c) => {
-				c.attendanceCourseComponentNameInfoList?.forEach((comp) => {
-					totalPresent += comp.totalPresentCount || 0;
-					totalClasses += comp.totalClassCount || 0;
+			effective?.attendanceCourseComponentInfoList?.forEach((c: any) => {
+				c.attendanceCourseComponentNameInfoList?.forEach((comp: any) => {
+					const p = Number(comp.numberOfPresent ?? comp.totalPresentCount ?? 0) + Number(comp.numberOfExtraAttendance ?? 0);
+					const t = Number(comp.numberOfPeriods ?? comp.totalClassCount ?? 0);
+					totalPresent += p;
+					totalClasses += t;
 				});
 			});
 
@@ -205,7 +202,7 @@ export default function SpideyCompanion({
 			// 3. Mid-air release with anchor -> RUBBER-BAND SLINGSHOT & SPIDER-MAN SWING ARC!
 			if (ceilingAnchor) {
 				setIsSwingingArc(true);
-				playSound("web_swing", 0.75); // User's custom swing sound plays when launched!
+				playSound("web_swing", 0.7); // User's custom swing sound plays when launched!
 				setSpeech("SWIIIIIING! 🕸️💨");
 
 				const anchor = { ...ceilingAnchor };
@@ -213,52 +210,53 @@ export default function SpideyCompanion({
 				const pullDy = anchor.y - (current.y + 18);
 				const pullDist = Math.hypot(pullDx, pullDy);
 
-				// Rubber band launch impulse: shoots towards & past the anchor forward
-				let vx = (pullDx / Math.max(pullDist, 1)) * Math.min(24, Math.max(9, pullDist * 0.13));
-				let vy = (pullDy / Math.max(pullDist, 1)) * Math.min(22, Math.max(7, pullDist * 0.11));
+				// Gentle, controlled swing launch (power tuned down)
+				const speedScale = Math.min(12, Math.max(3.5, pullDist * 0.06));
+				let vx = (pullDx / Math.max(pullDist, 1)) * speedScale;
+				let vy = (pullDy / Math.max(pullDist, 1)) * (speedScale * 0.82);
 
 				let currX = current.x;
 				let currY = current.y;
-				const restRope = Math.max(90, pullDist * 0.82);
+				const restRope = Math.max(85, pullDist * 0.88);
 				let frame = 0;
-				const maxFrames = 75; // ~1.25 seconds dynamic swing
+				const maxFrames = 62; // ~1 second graceful swing arc
 
 				const swingLoop = () => {
 					frame++;
 
-					if (frame < 50) {
+					if (frame < 40) {
 						// Web pulls towards ceiling anchor like a pendulum rope
 						const distToAnchor = Math.hypot(currX + 36 - anchor.x, currY + 18 - anchor.y);
 						if (distToAnchor > restRope) {
-							const tension = (distToAnchor - restRope) * 0.085;
+							const tension = (distToAnchor - restRope) * 0.045; // soft, smooth rope tension
 							const ux = (currX + 36 - anchor.x) / distToAnchor;
 							const uy = (currY + 18 - anchor.y) / distToAnchor;
 							vx -= ux * tension;
 							vy -= uy * tension;
 						}
-						vy += 0.45; // Gravity
+						vy += 0.32; // gentle gravity
 					} else {
-						// Web detaches at peak forward flight!
-						if (frame === 50) {
+						// Web detaches smoothly at peak forward arc
+						if (frame === 40) {
 							setCeilingAnchor(null);
 							setWebShootProgress(0);
 						}
-						vy += 0.6; // Gravity settles Spidey down
+						vy += 0.42; // gentle descent
 					}
 
-					vx *= 0.985;
-					vy *= 0.985;
+					vx *= 0.965; // smooth air drag to decelerate naturally
+					vy *= 0.965;
 					currX += vx;
 					currY += vy;
 
 					// STRICT SCREEN CLAMPING: Spidey will never leave the screen bounds
 					const bounded = clampPosition(currX, currY);
 					if (bounded.x !== currX) {
-						vx = -vx * 0.35; // Soft bounce off screen sides
+						vx = -vx * 0.25; // Soft bounce off screen sides
 						currX = bounded.x;
 					}
 					if (bounded.y !== currY) {
-						vy = -vy * 0.2; // Bounce or land on screen floor
+						vy = -vy * 0.15; // Soft landing on screen floor
 						currY = bounded.y;
 					}
 
@@ -266,10 +264,10 @@ export default function SpideyCompanion({
 
 					// Dynamic rotation along movement trajectory
 					const velAngle = (Math.atan2(vx, vy) * 180) / Math.PI;
-					setRotation(Math.max(-45, Math.min(45, (velAngle - 90) * 0.45)));
+					setRotation(Math.max(-40, Math.min(40, (velAngle - 90) * 0.4)));
 
 					// SWING FINISHED: Smooth landing and ALWAYS RESTORE IDLE POSE!
-					if (frame >= maxFrames || (frame > 40 && Math.abs(vx) < 0.7 && Math.abs(vy) < 1.0)) {
+					if (frame >= maxFrames || (frame > 35 && Math.abs(vx) < 0.6 && Math.abs(vy) < 0.9)) {
 						if (swingAnimRef.current) cancelAnimationFrame(swingAnimRef.current);
 						swingAnimRef.current = null;
 						setIsSwingingArc(false);

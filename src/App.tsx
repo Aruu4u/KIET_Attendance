@@ -163,6 +163,7 @@ function App() {
 					<SpiderChat
 						isOpen={isChatOpen}
 						onClose={() => setIsChatOpen(false)}
+						attendanceData={attendanceData}
 					/>
 				</AttendanceDataContext.Provider>
 			</main>

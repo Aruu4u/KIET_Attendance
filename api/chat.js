@@ -10,24 +10,34 @@ export default async function handler(req, res) {
 
   const { messages = [], attendanceData } = req.body || {};
 
+  // Support both direct attendance data and nested data wrapper
+  const effectiveData = attendanceData?.attendanceCourseComponentInfoList
+    ? attendanceData
+    : (attendanceData?.data?.attendanceCourseComponentInfoList ? attendanceData.data : null);
+
   // Build system prompt with LIVE attendance context
   let attendanceContext = 'User has not logged in yet or attendance data is loading.';
-  if (attendanceData && attendanceData.attendanceCourseComponentInfoList) {
-    const courses = attendanceData.attendanceCourseComponentInfoList || [];
+  if (effectiveData && effectiveData.attendanceCourseComponentInfoList) {
+    const courses = effectiveData.attendanceCourseComponentInfoList || [];
     let totalP = 0;
     let totalC = 0;
 
     const courseLines = courses.flatMap((course) =>
       (course.attendanceCourseComponentNameInfoList || []).map((comp) => {
-        const present = comp.totalPresentCount ?? 0;
-        const total = comp.totalClassCount ?? 0;
+        // Read actual CyberVidya fields: numberOfPresent, numberOfExtraAttendance, numberOfPeriods
+        const present = Number(comp.numberOfPresent ?? comp.totalPresentCount ?? 0) + Number(comp.numberOfExtraAttendance ?? 0);
+        const total = Number(comp.numberOfPeriods ?? comp.totalClassCount ?? 0);
         totalP += present;
         totalC += total;
-        const pct = total > 0 ? ((present / total) * 100).toFixed(1) : '0.0';
+        const pct = total > 0 ? ((present / total) * 100).toFixed(1) : (comp.presentPercentageWith || comp.presentPercentage || '0.0');
         const canMiss = total > 0 ? Math.floor((present - 0.75 * total) / 0.75) : 0;
         const needMore = total > 0 ? Math.max(0, Math.ceil((0.75 * total - present) / 0.25)) : 0;
-        return `  - ${course.courseName} (${course.courseCode || ''}) [${comp.componentName}]: ${present}/${total} classes (${pct}%) -> ${
-          canMiss > 0 ? `Can safely bunk ${canMiss} classes (Aura +100)` : `Must attend next ${needMore} classes to reach 75%`
+        return `  - ${course.courseName} (${course.courseCode || ''}) [${comp.componentName || 'Regular'}]: ${present}/${total} classes (${pct}%) -> ${
+          canMiss > 0
+            ? `Can safely bunk ${canMiss} class(es) without falling below 75% (Aura +100)`
+            : (needMore > 0
+                ? `MUST attend next ${needMore} consecutive class(es) to hit 75% (Danger Zone 🚨)`
+                : 'Exactly on the 75% line! Don’t miss any!')
         }`;
       }),
     );
@@ -35,9 +45,9 @@ export default async function handler(req, res) {
     const overallPct = totalC > 0 ? ((totalP / totalC) * 100).toFixed(1) : '0.0';
 
     attendanceContext = [
-      `Student Name: ${attendanceData.fullName || 'Arsal'}`,
-      `University Roll Number: ${attendanceData.registrationNumber || '202401100200087'}`,
-      `Branch: ${attendanceData.branchShortName || ''} | Section: ${attendanceData.sectionName || ''} | Semester: ${attendanceData.semesterName || ''}`,
+      `Student Name: ${effectiveData.fullName || 'Arsal'}`,
+      `University Roll Number: ${effectiveData.registrationNumber || '202401100200087'}`,
+      `Branch: ${effectiveData.branchShortName || ''} | Section: ${effectiveData.sectionName || ''} | Semester: ${effectiveData.semesterName || ''}`,
       `OVERALL ATTENDANCE: ${totalP}/${totalC} (${overallPct}%)`,
       `Subject-wise breakdown:`,
       ...courseLines,
