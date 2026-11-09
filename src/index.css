@@ -14,35 +14,57 @@
 }
 
 body {
-  background-color: #f1f5f9;
+  background-color: #0f172a;
   color: #0f172a;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow-x: hidden;
+  /* City background covers the full viewport always */
+  background-image: url('/spidey/city_bg.png');
+  background-size: cover;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
-/* Retro Video-Game Grid background pattern */
+/* City background wrapper — applied to the main app div */
 .spidey-light-bg {
-  background-color: #f8fafc;
-  background-image: 
-    linear-gradient(to right, rgba(0, 0, 0, 0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.06) 1px, #f8fafc 1px);
-  background-size: 24px 24px;
   min-height: 100vh;
+  background: transparent;
+  /* Subtle dark overlay to keep UI readable over the city art */
+  position: relative;
+}
+
+.spidey-light-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.spidey-light-bg > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* Neo-brutalist Pixel Game panels */
 .style-panel {
   position: relative;
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.92);
   border: 3.5px solid #000000;
   box-shadow: 6px 6px 0px #000000;
   border-radius: 16px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .style-border {
   border: 3px solid #000000 !important;
   box-shadow: 4px 4px 0px #000000 !important;
   border-radius: 12px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .style-text {
@@ -51,7 +73,44 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* Image pixelated rendering for crisp 8-bit & 16-bit video game art */
+/* ── City background behind transparent panels ── */
+
+/* Main page content area: fully transparent to show city */
+main {
+  background: transparent !important;
+}
+
+/* Attendance container transparent so city is visible between panels */
+.container {
+  background: transparent !important;
+}
+
+/* Individual content panels — frosted glass over city */
+.bg-white {
+  background: rgba(255, 255, 255, 0.93) !important;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+/* Keep navbar, header, footer fully opaque for readability */
+header {
+  background: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+
+footer {
+  background: rgba(255, 255, 255, 0.90) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+/* Keep login form card opaque */
+.w-full.max-w-md {
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
 .pixelated {
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;

@@ -112,7 +112,7 @@ function App() {
 	return (
 		<div className="min-h-screen flex flex-col spidey-light-bg text-black">
 			{/* Top Navbar with GenZ Retro Video Game Title + Sound/Meme Mute Toggle */}
-			<header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b-4 border-black shadow-[0_4px_0_#000] px-4 py-3 flex items-center justify-between">
+			<header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b-4 border-black shadow-[0_4px_0_#000] px-4 py-3 flex items-center justify-between">
 				<div className="flex items-center gap-2">
 					<span className="text-2xl animate-bounce" style={{ animationDuration: '2s' }}>🕷️</span>
 					<div>
