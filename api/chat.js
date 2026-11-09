@@ -160,19 +160,29 @@ ${WEEKLY_TIMETABLE}
       return res.status(500).json({ message: "GROQ_API_KEY not configured in Vercel env vars!" });
     }
 
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${groqKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-oss-120b',
-        messages: [{ role: 'system', content: systemPrompt }, ...messages],
-        max_tokens: shortAnswer ? 100 : 400,
-        temperature: 0.72,
-      }),
-    });
+    const callGroq = async (modelName, tokens) => {
+      return await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${groqKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [{ role: 'system', content: systemPrompt }, ...messages],
+          max_tokens: tokens,
+          temperature: 0.72,
+        }),
+      });
+    };
+
+    // Try Qwen 2.5 32B/27B first (standard fast model, non-reasoning, no safety lecture on attendance bunks)
+    let groqRes = await callGroq('qwen/qwen3.8-27b', shortAnswer ? 120 : 500);
+
+    // If Qwen fails or returns empty/error, fallback to gpt-oss-120b with generous token budget
+    if (!groqRes.ok) {
+      groqRes = await callGroq('openai/gpt-oss-120b', shortAnswer ? 300 : 800);
+    }
 
     if (!groqRes.ok) {
       const errText = await groqRes.text();
@@ -181,7 +191,18 @@ ${WEEKLY_TIMETABLE}
     }
 
     const data = await groqRes.json();
-    const reply = data.choices?.[0]?.message?.content || "Canon event in progress... ask me again in a sec!";
+    let reply = data.choices?.[0]?.message?.content;
+
+    // If content was empty due to internal reasoning tokens eating the budget, fallback to second model
+    if (!reply || reply.trim().length === 0) {
+      const fallbackRes = await callGroq('openai/gpt-oss-120b', 900);
+      if (fallbackRes.ok) {
+        const fallbackData = await fallbackRes.json();
+        reply = fallbackData.choices?.[0]?.message?.content;
+      }
+    }
+
+    reply = reply && reply.trim().length > 0 ? reply : "Arre bhai, connection drop ho gaya tha! Ek baar fir pooch le 🕸️";
     return res.status(200).json({ message: reply });
   } catch (err) {
     console.error('chat handler error:', err);
