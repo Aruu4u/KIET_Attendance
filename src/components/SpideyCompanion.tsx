@@ -18,7 +18,7 @@ export default function SpideyCompanion({
 	attendanceData,
 	onOpenChat,
 }: SpideyCompanionProps) {
-	const [speech, setSpeech] = useState<string>("Tap me to chat or drag me around! 🕸️");
+	const [speech, setSpeech] = useState<string>("Tap me to chat or drag me to swing! 🕸️");
 	const [isPeeping, setIsPeeping] = useState<boolean>(true);
 	const [activeMeme, setActiveMeme] = useState<PopMeme | null>(null);
 
@@ -26,8 +26,13 @@ export default function SpideyCompanion({
 	const [pos, setPos] = useState<{ x: number; y: number }>({ x: 30, y: 320 });
 	const [isDragging, setIsDragging] = useState<boolean>(false);
 	const [isBackflipping, setIsBackflipping] = useState<boolean>(false);
-	const [webTarget, setWebTarget] = useState<{ x: number; y: number } | null>(null);
 	const [rotation, setRotation] = useState<number>(0);
+
+	// Anchor point for the web shooter on the top ceiling / wall
+	const [ceilingAnchor, setCeilingAnchor] = useState<{ x: number; y: number } | null>(null);
+	// Swing angle calculated from pendulum physics
+	const [swingAngle, setSwingAngle] = useState<number>(0);
+
 	const dragStartOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 	const dragDistance = useRef<number>(0);
 
@@ -104,15 +109,24 @@ export default function SpideyCompanion({
 		}
 	}, [activeMeme]);
 
-	// Dragging with web-line effect (Supports BOTH Mouse AND Touch on Mobile)
+	// Dragging with web shooting to the top ceiling wall & swinging
 	useEffect(() => {
 		const handleMove = (clientX: number, clientY: number) => {
 			if (!isDragging) return;
 			dragDistance.current += 1;
-			setWebTarget({ x: clientX, y: clientY });
+
 			const newX = clientX - dragStartOffset.current.x;
 			const newY = clientY - dragStartOffset.current.y;
 			setPos({ x: newX, y: newY });
+
+			// Calculate swing angle relative to the top ceiling anchor
+			if (ceilingAnchor) {
+				const dx = newX + 35 - ceilingAnchor.x;
+				const dy = newY + 20 - ceilingAnchor.y;
+				// Pendulum tilt angle in degrees (-45deg to +45deg)
+				const angle = Math.max(-45, Math.min(45, (Math.atan2(dx, dy) * 180) / Math.PI));
+				setSwingAngle(angle);
+			}
 		};
 
 		const handleMouseMove = (e: MouseEvent) => {
@@ -128,14 +142,15 @@ export default function SpideyCompanion({
 		const handleEnd = (clientX: number, clientY: number) => {
 			if (!isDragging) return;
 			setIsDragging(false);
-			setWebTarget(null);
+			setCeilingAnchor(null);
+			setSwingAngle(0);
 
 			const screenW = window.innerWidth;
 			const screenH = window.innerHeight;
 			const finalX = clientX - dragStartOffset.current.x;
 			const finalY = clientY - dragStartOffset.current.y;
 
-			// If it was just a tap/click without dragging, trigger single tap action!
+			// If it was just a quick tap/click without dragging, open chat
 			if (dragDistance.current < 5) {
 				handleSingleTap();
 				return;
@@ -172,7 +187,8 @@ export default function SpideyCompanion({
 				handleEnd(touch.clientX, touch.clientY);
 			} else {
 				setIsDragging(false);
-				setWebTarget(null);
+				setCeilingAnchor(null);
+				setSwingAngle(0);
 			}
 		};
 
@@ -190,7 +206,7 @@ export default function SpideyCompanion({
 			window.removeEventListener("touchend", handleTouchEnd);
 			window.removeEventListener("touchcancel", handleTouchEnd);
 		};
-	}, [isDragging, attendanceData]);
+	}, [isDragging, ceilingAnchor, attendanceData]);
 
 	// Single tap handler: check if logged in or on home screen
 	const handleSingleTap = () => {
@@ -199,18 +215,22 @@ export default function SpideyCompanion({
 			setIsPeeping(true);
 			playSound("dexter", 0.4);
 		} else {
-			// Logged in! Open the Groq chat bot directly
 			setSpeech("Opening SpiderBot AI... let's talk attendance! 💬");
 			setIsPeeping(true);
 			onOpenChat();
 		}
 	};
 
-	// Mouse drag start
+	// Mouse drag start: Shoot web to the TOP CEILING WALL and anchor it!
 	const handleMouseDown = (e: React.MouseEvent) => {
 		e.preventDefault();
 		dragDistance.current = 0;
 		setIsDragging(true);
+
+		// Anchor the web shooter to the top wall (y = 0) right above Spidey
+		const anchorX = Math.max(40, Math.min(window.innerWidth - 40, e.clientX));
+		setCeilingAnchor({ x: anchorX, y: 0 });
+
 		dragStartOffset.current = {
 			x: e.clientX - pos.x,
 			y: e.clientY - pos.y,
@@ -218,12 +238,17 @@ export default function SpideyCompanion({
 		playSound("web_swing", 0.35);
 	};
 
-	// Touch drag start (Mobile phones & tablets)
+	// Touch drag start (Mobile): Shoot web to the TOP CEILING WALL and anchor it!
 	const handleTouchStart = (e: React.TouchEvent) => {
 		if (e.touches.length > 0) {
 			const touch = e.touches[0];
 			dragDistance.current = 0;
 			setIsDragging(true);
+
+			// Anchor the web shooter to the top wall (y = 0)
+			const anchorX = Math.max(40, Math.min(window.innerWidth - 40, touch.clientX));
+			setCeilingAnchor({ x: anchorX, y: 0 });
+
 			dragStartOffset.current = {
 				x: touch.clientX - pos.x,
 				y: touch.clientY - pos.y,
@@ -243,25 +268,49 @@ export default function SpideyCompanion({
 
 	return (
 		<>
-			{/* Dynamic Web Strand during dragging / swinging */}
-			{isDragging && webTarget && (
+			{/* Web shooter anchored to the TOP WALL and connected to Spidey's hand */}
+			{isDragging && ceilingAnchor && (
 				<svg
 					className="fixed inset-0 pointer-events-none z-40 w-full h-full"
-					style={{ filter: "drop-shadow(0 0 3px rgba(255,255,255,0.9))" }}
+					style={{ filter: "drop-shadow(0 0 3px rgba(255,255,255,0.95))" }}
 				>
+					{/* Web Splat Anchor on the Top Wall */}
+					<circle
+						cx={ceilingAnchor.x}
+						cy={ceilingAnchor.y + 4}
+						r="8"
+						fill="#e2e8f0"
+						stroke="#0f172a"
+						strokeWidth="2.5"
+					/>
+					<circle cx={ceilingAnchor.x} cy={ceilingAnchor.y + 4} r="3" fill="#cbd5e1" />
+					{/* Secondary anchor splats */}
+					<circle cx={ceilingAnchor.x - 7} cy={ceilingAnchor.y + 2} r="3.5" fill="#e2e8f0" />
+					<circle cx={ceilingAnchor.x + 7} cy={ceilingAnchor.y + 2} r="3.5" fill="#e2e8f0" />
+
+					{/* Strong, taut Web Rope */}
 					<line
-						x1={pos.x + 35}
-						y1={pos.y + 20}
-						x2={webTarget.x}
-						y2={webTarget.y}
-						stroke="#64748b"
-						strokeWidth="3"
-						strokeDasharray="6 3"
+						x1={ceilingAnchor.x}
+						y1={ceilingAnchor.y + 4}
+						x2={pos.x + 38}
+						y2={pos.y + 18}
+						stroke="#94a3b8"
+						strokeWidth="3.5"
+					/>
+					{/* Inner bright web thread */}
+					<line
+						x1={ceilingAnchor.x}
+						y1={ceilingAnchor.y + 4}
+						x2={pos.x + 38}
+						y2={pos.y + 18}
+						stroke="#f8fafc"
+						strokeWidth="1.5"
+						strokeDasharray="8 3"
 					/>
 				</svg>
 			)}
 
-			{/* Actual Attendance Pop-up Notification (waah kya scene / cat laugh / faaah) */}
+			{/* Actual Attendance Pop-up Notification */}
 			{activeMeme && (
 				<div
 					className="fixed top-18 right-4 z-50 max-w-xs bg-white border-4 border-black shadow-[6px_6px_0_#000] p-3 rounded-2xl animate-bounce"
@@ -306,7 +355,8 @@ export default function SpideyCompanion({
 				style={{
 					left: `${pos.x}px`,
 					top: `${pos.y}px`,
-					transform: `rotate(${rotation}deg)`,
+					transform: `rotate(${isDragging ? swingAngle : rotation}deg)`,
+					transformOrigin: "38px 18px", // Pivots naturally from the web in hand
 					transition: isDragging ? "none" : "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
 					touchAction: "none",
 				}}
@@ -314,27 +364,27 @@ export default function SpideyCompanion({
 				onTouchStart={handleTouchStart}
 				onDoubleClick={handleDoubleTap}
 				className="fixed z-40 select-none cursor-grab active:cursor-grabbing pointer-events-auto"
-				title="Single tap to chat! Drag to swing! Double-tap for backflip!"
+				title="Single tap to chat! Drag to swing from the ceiling!"
 			>
 				{/* Speech bubble */}
 				<div
 					className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 sm:w-52 bg-white text-black p-2.5 rounded-2xl border-3 border-black shadow-[4px_4px_0_#000] text-xs font-black leading-snug transition-all duration-300 pointer-events-none ${
 						isPeeping ? "opacity-100 scale-100" : "opacity-0 scale-75"
 					}`}
-					style={{ transform: `rotate(${-rotation}deg)` }}
+					style={{ transform: `rotate(${-(isDragging ? swingAngle : rotation)}deg)` }}
 				>
 					<p>{speech}</p>
 					<div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white border-b-3 border-r-3 border-black rotate-45" />
 				</div>
 
-				{/* 3D Action Avatar: Pixel city swing pose during dragging, idle when sitting */}
+				{/* 3D Action Avatar with perspective swing dynamic shadow */}
 				<div
-					className={`w-18 h-18 sm:w-22 sm:h-22 filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.4)] transition-all duration-300 ${
+					className={`w-18 h-18 sm:w-22 sm:h-22 filter transition-all duration-300 ${
 						isBackflipping ? "rotate-[360deg] scale-125" : ""
 					} ${
 						isDragging
-							? "scale-115 -rotate-12 [transform:perspective(600px)_rotateY(-15deg)_rotateX(10deg)]"
-							: "hover:scale-105 active:scale-95"
+							? "scale-115 drop-shadow-[0_16px_20px_rgba(0,0,0,0.55)] [transform:perspective(500px)_rotateX(18deg)_rotateY(-12deg)_translateZ(20px)]"
+							: "drop-shadow-[0_6px_10px_rgba(0,0,0,0.35)] hover:scale-105 active:scale-95"
 					}`}
 				>
 					<img
