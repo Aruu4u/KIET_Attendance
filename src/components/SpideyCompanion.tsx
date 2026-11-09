@@ -1,4 +1,3 @@
-import { Mic, MicOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { playSound, type SoundType } from "../utils/soundManager";
 import { spideyVoice } from "../utils/voiceAssistant";
@@ -23,83 +22,87 @@ export default function SpideyCompanion({
 	isChatOpen = false,
 }: SpideyCompanionProps) {
 	const [speech, setSpeech] = useState<string>(
-		"Single tap: Chat 💬\nDouble tap: Web Swing 🕸️\nDrag to move! Say 'Hey Spidey' 🎙️",
+		"Tap me to chat 💬  Double-tap to swing 🕸️\nSay 'Hey Spidey' to ask anything! 🎙️",
 	);
 	const [isPeeping, setIsPeeping] = useState<boolean>(true);
 	const [activeMeme, setActiveMeme] = useState<PopMeme | null>(null);
 
-	// Screen Boundary Bounds
 	const SPRITE_SIZE = 76;
 	const TOP_CEILING_ZONE = 75;
 
-	// Position strictly bounded inside screen
 	const [pos, setPos] = useState<{ x: number; y: number }>({ x: 30, y: 320 });
-	const [isDragging, setIsDragging] = useState<boolean>(false);
 	const [isSwingingArc, setIsSwingingArc] = useState<boolean>(false);
 	const [rotation, setRotation] = useState<number>(0);
-	const [poseState, setPoseState] = useState<"idle" | "swing" | "top_hang">(
-		"idle",
-	);
+	const [poseState, setPoseState] = useState<"idle" | "swing" | "top_hang">("idle");
 
-	// Voice Command states
-	const [isVoiceActive, setIsVoiceActive] = useState<boolean>(false);
-	const [isAnsweringVoice, setIsAnsweringVoice] = useState<boolean>(false);
-
-	// Web Anchor pinned to the top ceiling for double-click web swing
-	const [ceilingAnchor, setCeilingAnchor] = useState<{
-		x: number;
-		y: number;
-	} | null>(null);
+	const [ceilingAnchor, setCeilingAnchor] = useState<{ x: number; y: number } | null>(null);
 	const [webShootProgress, setWebShootProgress] = useState<number>(0);
 
-	const dragStartOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-	const dragStartPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-	const dragDistance = useRef<number>(0);
+	// All mutable drag state lives in refs — avoids stale closure issues
+	const posRef = useRef({ x: 30, y: 320 });
+	const isDraggingRef = useRef(false);
+	const dragStartClientRef = useRef({ x: 0, y: 0 });
+	const dragStartPosRef = useRef({ x: 0, y: 0 });
+	const dragDistanceRef = useRef(0);
 	const swingAnimRef = useRef<number | null>(null);
 	const shootAnimRef = useRef<number | null>(null);
 
-	// Single vs Double Click detector
-	const lastClickTimeRef = useRef<number>(0);
-	const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Double-tap: detected at pointerdown level using timestamps (works on mobile too)
+	const lastTapTimeRef = useRef<number>(0);
+	const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const doubleTapThreshold = 300; // ms
 
-	// Strict screen bounds clamp: guarantees avatar NEVER moves outside the visible viewport
 	const clampPosition = (x: number, y: number) => {
-		const screenW = typeof window !== "undefined" ? window.innerWidth : 380;
-		const screenH = typeof window !== "undefined" ? window.innerHeight : 720;
+		const W = window.innerWidth;
+		const H = window.innerHeight;
 		return {
-			x: Math.max(14, Math.min(screenW - SPRITE_SIZE - 14, x)),
-			y: Math.max(16, Math.min(screenH - SPRITE_SIZE - 95, y)),
+			x: Math.max(14, Math.min(W - SPRITE_SIZE - 14, x)),
+			y: Math.max(16, Math.min(H - SPRITE_SIZE - 95, y)),
 		};
 	};
 
-	// Clean up all animation frames & timers on unmount
+	// Keep posRef in sync with state
+	const setPosSynced = (p: { x: number; y: number }) => {
+		posRef.current = p;
+		setPos(p);
+	};
+
+	// Cleanup on unmount
 	useEffect(() => {
 		return () => {
 			if (swingAnimRef.current) cancelAnimationFrame(swingAnimRef.current);
 			if (shootAnimRef.current) cancelAnimationFrame(shootAnimRef.current);
-			if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+			if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
 		};
 	}, []);
 
-	// Voice Command ("Hey Spidey") listener integration
+	// ── "Hey Spidey" always-on background voice listener ──
+	// Starts voice recognition silently on mount so wake word is always ready.
+	// Never opens the chatbot — answers ONLY in the think-cloud bubble.
 	useEffect(() => {
+		// Auto-start voice in background (no mic button needed)
+		if (spideyVoice.isSupported() && !spideyVoice.getIsRunning()) {
+			spideyVoice.start();
+		}
+
 		const unsubStatus = spideyVoice.onStatus((listening, msg) => {
-			setIsVoiceActive(listening);
-			if (listening && !isAnsweringVoice && !isChatOpen) {
-				setSpeech(msg);
-				setIsPeeping(true);
+			// Only update bubble if NOT already in a voice answer and chat is closed
+			if (!isChatOpen) {
+				if (listening) {
+					setSpeech(msg);
+					setIsPeeping(true);
+				}
 			}
 		});
 
-		const unsubQuery = async (query: string) => {
-			// If chatbot dialog is already open, SpiderChat handles the query
+		const handleVoiceQuery = async (query: string) => {
+			// When chatbot is open, SpiderChat handles the query — Spidey stays silent
 			if (isChatOpen) return;
 
-			// If chatbot is NOT open: Spidey answers directly inside his think cloud!
-			setIsAnsweringVoice(true);
+			// Chat is CLOSED → answer briefly in the think-cloud. Never open chatbox.
 			setSpeech("Thinking... 🕷️💭");
 			setIsPeeping(true);
-			playSound("spiderman", 0.3);
+			playSound("spiderman", 0.25);
 
 			try {
 				const res = await fetch("/api/chat", {
@@ -111,109 +114,68 @@ export default function SpideyCompanion({
 						shortAnswer: true,
 					}),
 				});
-
-				if (!res.ok) throw new Error("API error");
 				const data = await res.json();
-				const reply = data.message || "Attendance stats ready! 🕸️";
+				const reply = data.message || "Ask me again, bro! 🕸️";
 				setSpeech(reply);
 				setIsPeeping(true);
 				spideyVoice.speak(reply);
 			} catch {
-				setSpeech("Systumm hang! Ask me again in a sec 🕸️");
+				setSpeech("Web-shooters jammed! Try again 🕸️");
 				setIsPeeping(true);
-			} finally {
-				setIsAnsweringVoice(false);
 			}
 		};
 
-		const unsubQueryHook = spideyVoice.onQuery(unsubQuery);
-		setIsVoiceActive(spideyVoice.getIsRunning());
+		const unsubQuery = spideyVoice.onQuery(handleVoiceQuery);
 
 		return () => {
 			unsubStatus();
-			unsubQueryHook();
+			unsubQuery();
+			// Don't stop voice on unmount — keep it alive globally
 		};
-	}, [isChatOpen, attendanceData, isAnsweringVoice]);
+	}, [isChatOpen, attendanceData]);
 
-	// Attendance sound checks
+	// ── Attendance meme popups on login ──
 	useEffect(() => {
 		if (!attendanceData) return;
 		try {
 			// biome-ignore lint/suspicious/noExplicitAny: dynamic payload
-			const effective = (attendanceData as any)?.attendanceCourseComponentInfoList
+			const eff = (attendanceData as any)?.attendanceCourseComponentInfoList
 				// biome-ignore lint/suspicious/noExplicitAny: dynamic payload
 				? (attendanceData as any)
 				// biome-ignore lint/suspicious/noExplicitAny: dynamic payload
 				: (attendanceData as any)?.data;
-			let totalPresent = 0;
-			let totalClasses = 0;
+			let p = 0, t = 0;
 			// biome-ignore lint/suspicious/noExplicitAny: dynamic payload
-			effective?.attendanceCourseComponentInfoList?.forEach((c: any) => {
+			eff?.attendanceCourseComponentInfoList?.forEach((c: any) => {
 				// biome-ignore lint/suspicious/noExplicitAny: dynamic payload
 				c.attendanceCourseComponentNameInfoList?.forEach((comp: any) => {
-					const p =
-						Number(comp.numberOfPresent ?? comp.totalPresentCount ?? 0) +
-						Number(comp.numberOfExtraAttendance ?? 0);
-					const t = Number(comp.numberOfPeriods ?? comp.totalClassCount ?? 0);
-					totalPresent += p;
-					totalClasses += t;
+					p += Number(comp.numberOfPresent ?? comp.totalPresentCount ?? 0) + Number(comp.numberOfExtraAttendance ?? 0);
+					t += Number(comp.numberOfPeriods ?? comp.totalClassCount ?? 0);
 				});
 			});
-
-			const overallPct =
-				totalClasses > 0 ? (totalPresent / totalClasses) * 100 : 0;
-
+			const pct = t > 0 ? (p / t) * 100 : 0;
 			const timer = setTimeout(() => {
-				if (overallPct >= 80) {
-					setActiveMeme({
-						id: Date.now(),
-						image: "/sounds/waah-kya-scene-hai.jpg",
-						title: "WAAH KYA SCENE HAI! 🔥",
-						subtitle: `Overall Attendance: ${overallPct.toFixed(1)}% — Bro is HIM!`,
-						sound: "waah_kya_scene",
-					});
+				if (pct >= 80) {
+					setActiveMeme({ id: Date.now(), image: "/sounds/waah-kya-scene-hai.jpg", title: "WAAH KYA SCENE HAI! 🔥", subtitle: `Overall: ${pct.toFixed(1)}% — Bro is HIM!`, sound: "waah_kya_scene" });
 					playSound("waah_kya_scene", 0.7);
-					setSpeech(
-						`Waah kya scene hai! ${overallPct.toFixed(1)}% attendance?! Infinite aura 🗿`,
-					);
-				} else if (overallPct < 70) {
-					setActiveMeme({
-						id: Date.now(),
-						title: "FAAAAH! 💀 NAH BRO IS COOKED",
-						subtitle: `Overall Attendance: ${overallPct.toFixed(1)}% — Academic Downfall!`,
-						sound: "faaah",
-					});
+					setSpeech(`${pct.toFixed(1)}% attendance?! Infinite aura 🗿`);
+				} else if (pct < 70) {
+					setActiveMeme({ id: Date.now(), title: "FAAAAH! 💀 BRO IS COOKED", subtitle: `Overall: ${pct.toFixed(1)}%`, sound: "faaah" });
 					playSound("faaah", 0.6);
-					setSpeech(
-						`FAAAAH! Only ${overallPct.toFixed(1)}%?! Chat, is bro cooked beyond repair?! 😭`,
-					);
-				} else if (overallPct < 75) {
-					setActiveMeme({
-						id: Date.now(),
-						image: "/sounds/cat-laugh-meme-1.jpg",
-						title: "CAT LAUGH 😹 DETENTION RISK",
-						subtitle: `Overall Attendance: ${overallPct.toFixed(1)}% — Under 75%!`,
-						sound: "cat_laugh",
-					});
+					setSpeech(`Only ${pct.toFixed(1)}%?! Chat, bro is cooked fr 😭`);
+				} else if (pct < 75) {
+					setActiveMeme({ id: Date.now(), image: "/sounds/cat-laugh-meme-1.jpg", title: "DETENTION RISK 😹", subtitle: `Overall: ${pct.toFixed(1)}% — Under 75%!`, sound: "cat_laugh" });
 					playSound("cat_laugh", 0.6);
-					setSpeech(
-						`Attendance: ${overallPct.toFixed(1)}%! Even the cat is laughing 💀`,
-					);
+					setSpeech(`${pct.toFixed(1)}%! Even the cat is laughing 💀`);
 				} else {
 					playSound("oh_my_god", 0.5);
-					setSpeech(
-						`Attendance: ${overallPct.toFixed(1)}%! Safely above 75%. Let him cook! 🍳`,
-					);
+					setSpeech(`${pct.toFixed(1)}% — above 75%! Let him cook 🍳`);
 				}
 			}, 1500);
-
 			return () => clearTimeout(timer);
-		} catch {
-			// ignore
-		}
+		} catch { /* ignore */ }
 	}, [attendanceData]);
 
-	// Auto-dismiss active meme popup
 	useEffect(() => {
 		if (activeMeme) {
 			const t = setTimeout(() => setActiveMeme(null), 6500);
@@ -221,251 +183,201 @@ export default function SpideyCompanion({
 		}
 	}, [activeMeme]);
 
-	// Mouse & Touch Dragging Listener
-	useEffect(() => {
-		const handleMove = (clientX: number, clientY: number) => {
-			if (!isDragging) return;
-			const moved = Math.hypot(
-				clientX - dragStartPos.current.x,
-				clientY - dragStartPos.current.y,
-			);
-			dragDistance.current = moved;
-
-			// Simply drag around without shooting webs or slingshot tension!
-			if (moved > 6) {
-				const rawX = clientX - dragStartOffset.current.x;
-				const rawY = clientY - dragStartOffset.current.y;
-				const clamped = clampPosition(rawX, rawY);
-				setPos(clamped);
-				if (poseState === "top_hang" && clamped.y > TOP_CEILING_ZONE) {
-					setPoseState("idle");
-				}
-			}
-		};
-
-		const handleMouseMove = (e: MouseEvent) => {
-			handleMove(e.clientX, e.clientY);
-		};
-
-		const handleTouchMove = (e: TouchEvent) => {
-			if (e.touches.length > 0) {
-				handleMove(e.touches[0].clientX, e.touches[0].clientY);
-			}
-		};
-
-		const handleEnd = (clientX: number, clientY: number) => {
-			if (!isDragging) return;
-			setIsDragging(false);
-
-			// 1. DRAG FINISHED (User moved > 6px) -> Simply place him where dragged
-			if (dragDistance.current > 6) {
-				const rawX = clientX - dragStartOffset.current.x;
-				const rawY = clientY - dragStartOffset.current.y;
-				const clamped = clampPosition(rawX, rawY);
-
-				if (clamped.y <= TOP_CEILING_ZONE) {
-					// Dropped near ceiling -> Hang upside down!
-					setPos({ x: clamped.x, y: 16 });
-					setPoseState("top_hang");
-					setRotation(0);
-					setSpeech("Chillin' upside down on the ceiling! 🧗‍♂️🕸️");
-					setIsPeeping(true);
-				} else {
-					// Normal drop position
-					setPos(clamped);
-					setPoseState("idle");
-					setRotation(0);
-				}
-				return;
-			}
-
-			// 2. TAP / CLICK (Moved <= 6px) -> Detect Single Tap vs Double Tap!
-			const now = Date.now();
-			if (now - lastClickTimeRef.current < 320) {
-				// DOUBLE CLICK DETECTED! -> Throw web shooter & swing!
-				if (clickTimerRef.current) {
-					clearTimeout(clickTimerRef.current);
-					clickTimerRef.current = null;
-				}
-				lastClickTimeRef.current = 0;
-				triggerDoubleTapWebSwing();
-			} else {
-				// SINGLE CLICK CANDIDATE!
-				lastClickTimeRef.current = now;
-				clickTimerRef.current = setTimeout(() => {
-					triggerSingleClickChat();
-					clickTimerRef.current = null;
-				}, 320);
-			}
-		};
-
-		const handleMouseUp = (e: MouseEvent) => {
-			handleEnd(e.clientX, e.clientY);
-		};
-
-		const handleTouchEnd = (e: TouchEvent) => {
-			const touch = e.changedTouches[0];
-			if (touch) {
-				handleEnd(touch.clientX, touch.clientY);
-			} else {
-				setIsDragging(false);
-			}
-		};
-
-		if (isDragging) {
-			window.addEventListener("mousemove", handleMouseMove);
-			window.addEventListener("mouseup", handleMouseUp);
-			window.addEventListener("touchmove", handleTouchMove, { passive: false });
-			window.addEventListener("touchend", handleTouchEnd);
-			window.addEventListener("touchcancel", handleTouchEnd);
-		}
-		return () => {
-			window.removeEventListener("mousemove", handleMouseMove);
-			window.removeEventListener("mouseup", handleMouseUp);
-			window.removeEventListener("touchmove", handleTouchMove);
-			window.removeEventListener("touchend", handleTouchEnd);
-			window.removeEventListener("touchcancel", handleTouchEnd);
-		};
-	}, [isDragging, poseState]);
-
-	// Double Tap Handler: Throw Web Shooter & Spider-Man Swing!
-	const triggerDoubleTapWebSwing = () => {
+	// ── Swing animation ──
+	const triggerWebSwing = (startX: number, startY: number) => {
 		if (swingAnimRef.current) cancelAnimationFrame(swingAnimRef.current);
 		if (shootAnimRef.current) cancelAnimationFrame(shootAnimRef.current);
 
 		setIsSwingingArc(true);
-		setPoseState("swing"); // 3D swing pose activated!
+		setPoseState("swing");
 		playSound("web_swing", 0.7);
 		setSpeech("SWIIIIIING! 🕸️💨");
 		setIsPeeping(true);
 
-		// Anchor pinned to top ceiling directly above
-		const anchorX = Math.max(35, Math.min(window.innerWidth - 35, pos.x + 36));
+		const anchorX = Math.max(35, Math.min(window.innerWidth - 35, startX + 36));
 		const anchor = { x: anchorX, y: 0 };
 		setCeilingAnchor(anchor);
 		setWebShootProgress(0.1);
 
-		// Rapid visual web shot line extending to ceiling
-		const start = performance.now();
-		const animDuration = 100;
+		// Animate web shoot line to ceiling
+		const shotStart = performance.now();
 		const animateShot = (now: number) => {
-			const p = Math.min(1, (now - start) / animDuration);
+			const p = Math.min(1, (now - shotStart) / 110);
 			setWebShootProgress(p);
-			if (p < 1) {
-				shootAnimRef.current = requestAnimationFrame(animateShot);
-			}
+			if (p < 1) shootAnimRef.current = requestAnimationFrame(animateShot);
 		};
 		shootAnimRef.current = requestAnimationFrame(animateShot);
 
-		// Smooth, graceful Spider-Man pendulum swing arc
-		const swingDir = pos.x < window.innerWidth / 2 ? 1 : -1;
-		let vx = swingDir * 8.5;
-		let vy = -3.2;
-		let currX = pos.x;
-		let currY = pos.y;
+		// Pendulum swing physics
+		const swingDir = startX < window.innerWidth / 2 ? 1 : -1;
+		let vx = swingDir * 9;
+		let vy = -3.5;
+		let cx = startX, cy = startY;
 		let frame = 0;
-		const maxFrames = 62;
-		const restRope = Math.max(
-			110,
-			Math.hypot(pos.x + 36 - anchor.x, pos.y + 18 - anchor.y),
-		);
+		const maxFrames = 60;
+		const restRope = Math.max(110, Math.hypot(startX + 36 - anchorX, startY + 18));
 
 		const swingLoop = () => {
 			frame++;
-
-			if (frame < 42) {
-				// Web pulls towards ceiling anchor like a pendulum rope
-				const distToAnchor = Math.hypot(
-					currX + 36 - anchor.x,
-					currY + 18 - anchor.y,
-				);
-				if (distToAnchor > restRope) {
-					const tension = (distToAnchor - restRope) * 0.045; // gentle rope tension
-					const ux = (currX + 36 - anchor.x) / distToAnchor;
-					const uy = (currY + 18 - anchor.y) / distToAnchor;
-					vx -= ux * tension;
-					vy -= uy * tension;
+			if (frame < 40) {
+				const d = Math.hypot(cx + 36 - anchor.x, cy + 18 - anchor.y);
+				if (d > restRope) {
+					const tension = (d - restRope) * 0.045;
+					vx -= ((cx + 36 - anchor.x) / d) * tension;
+					vy -= ((cy + 18 - anchor.y) / d) * tension;
 				}
-				vy += 0.32; // gentle gravity
+				vy += 0.33;
 			} else {
-				// Web detaches smoothly at peak forward arc
-				if (frame === 42) {
-					setCeilingAnchor(null);
-					setWebShootProgress(0);
-				}
-				vy += 0.42; // gentle descent
+				if (frame === 40) { setCeilingAnchor(null); setWebShootProgress(0); }
+				vy += 0.44;
 			}
+			vx *= 0.966; vy *= 0.966;
+			cx += vx; cy += vy;
 
-			vx *= 0.965;
-			vy *= 0.965;
-			currX += vx;
-			currY += vy;
+			const b = clampPosition(cx, cy);
+			if (b.x !== cx) { vx = -vx * 0.25; cx = b.x; }
+			if (b.y !== cy) { vy = -vy * 0.15; cy = b.y; }
 
-			// STRICT SCREEN CLAMPING: Spidey will never leave the screen bounds
-			const bounded = clampPosition(currX, currY);
-			if (bounded.x !== currX) {
-				vx = -vx * 0.25;
-				currX = bounded.x;
-			}
-			if (bounded.y !== currY) {
-				vy = -vy * 0.15;
-				currY = bounded.y;
-			}
+			setPosSynced({ x: cx, y: cy });
+			const angle = (Math.atan2(vx, vy) * 180) / Math.PI;
+			setRotation(Math.max(-40, Math.min(40, (angle - 90) * 0.4)));
 
-			setPos({ x: currX, y: currY });
-
-			// Dynamic rotation along movement trajectory
-			const velAngle = (Math.atan2(vx, vy) * 180) / Math.PI;
-			setRotation(Math.max(-40, Math.min(40, (velAngle - 90) * 0.4)));
-
-			// SWING FINISHED: Smooth landing and ALWAYS RESTORE IDLE POSE!
-			if (
-				frame >= maxFrames ||
-				(frame > 35 && Math.abs(vx) < 0.6 && Math.abs(vy) < 0.9)
-			) {
-				if (swingAnimRef.current) cancelAnimationFrame(swingAnimRef.current);
+			if (frame >= maxFrames || (frame > 32 && Math.abs(vx) < 0.6 && Math.abs(vy) < 0.9)) {
 				swingAnimRef.current = null;
 				setIsSwingingArc(false);
 				setCeilingAnchor(null);
 				setWebShootProgress(0);
 				setRotation(0);
-				setPoseState("idle"); // Normal posture restored!
+				setPoseState("idle");
 				setSpeech("Smooth landing! 🍕🕸️");
 				setIsPeeping(true);
 				return;
 			}
-
 			swingAnimRef.current = requestAnimationFrame(swingLoop);
 		};
-
 		swingAnimRef.current = requestAnimationFrame(swingLoop);
 	};
 
-	// Single Click Handler: Open Chatbot (or prompt login)
-	const triggerSingleClickChat = () => {
+	// ── Single tap → open chatbot ──
+	const triggerChat = () => {
 		if (!attendanceData) {
-			setSpeech("Please login first, then we can chat! 🔒🕸️");
+			setSpeech("Login first bro, then we chat! 🔒🕸️");
 			setIsPeeping(true);
 			playSound("dexter", 0.4);
 		} else {
-			setSpeech("Opening SpiderBot AI... let's talk attendance! 💬");
+			setSpeech("Opening SpiderBot... 💬🕷️");
 			setIsPeeping(true);
 			onOpenChat();
 		}
 	};
 
-	// Start dragging: tracks touch/mouse start
-	const startDrag = (clientX: number, clientY: number) => {
-		if (swingAnimRef.current) cancelAnimationFrame(swingAnimRef.current);
-		if (shootAnimRef.current) cancelAnimationFrame(shootAnimRef.current);
-
-		dragDistance.current = 0;
-		dragStartPos.current = { x: clientX, y: clientY };
-		dragStartOffset.current = {
-			x: clientX - pos.x,
-			y: clientY - pos.y,
+	// ── Global pointer listeners (attached once, not re-attached on every render) ──
+	useEffect(() => {
+		const onMove = (clientX: number, clientY: number) => {
+			if (!isDraggingRef.current) return;
+			const moved = Math.hypot(clientX - dragStartClientRef.current.x, clientY - dragStartClientRef.current.y);
+			dragDistanceRef.current = moved;
+			if (moved > 8) {
+				const raw = { x: clientX - (dragStartClientRef.current.x - dragStartPosRef.current.x), y: clientY - (dragStartClientRef.current.y - dragStartPosRef.current.y) };
+				const clamped = clampPosition(raw.x, raw.y);
+				setPosSynced(clamped);
+			}
 		};
-		setIsDragging(true);
+
+		const onEnd = (clientX: number, clientY: number) => {
+			if (!isDraggingRef.current) return;
+			isDraggingRef.current = false;
+
+			const moved = dragDistanceRef.current;
+
+			if (moved > 8) {
+				// It was a real drag — place Spidey at drop position
+				const raw = {
+					x: clientX - (dragStartClientRef.current.x - dragStartPosRef.current.x),
+					y: clientY - (dragStartClientRef.current.y - dragStartPosRef.current.y),
+				};
+				const clamped = clampPosition(raw.x, raw.y);
+				if (clamped.y <= TOP_CEILING_ZONE) {
+					setPosSynced({ x: clamped.x, y: 16 });
+					setPoseState("top_hang");
+					setRotation(0);
+					setSpeech("Chillin' upside down! 🧗‍♂️🕸️");
+					setIsPeeping(true);
+				} else {
+					setPosSynced(clamped);
+					setPoseState("idle");
+					setRotation(0);
+				}
+				return;
+			}
+
+			// It was a tap — check single vs double
+			const now = Date.now();
+			const sinceLastTap = now - lastTapTimeRef.current;
+
+			if (sinceLastTap < doubleTapThreshold && sinceLastTap > 0) {
+				// ── DOUBLE TAP → Web Swing ──
+				if (singleTapTimerRef.current) {
+					clearTimeout(singleTapTimerRef.current);
+					singleTapTimerRef.current = null;
+				}
+				lastTapTimeRef.current = 0;
+				triggerWebSwing(posRef.current.x, posRef.current.y);
+			} else {
+				// ── SINGLE TAP (wait to confirm it isn't double) ──
+				lastTapTimeRef.current = now;
+				if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+				singleTapTimerRef.current = setTimeout(() => {
+					singleTapTimerRef.current = null;
+					triggerChat();
+				}, doubleTapThreshold);
+			}
+		};
+
+		const onMouseMove = (e: MouseEvent) => onMove(e.clientX, e.clientY);
+		const onMouseUp = (e: MouseEvent) => { onEnd(e.clientX, e.clientY); removeListeners(); };
+		const onTouchMove = (e: TouchEvent) => { if (e.touches[0]) onMove(e.touches[0].clientX, e.touches[0].clientY); };
+		const onTouchEnd = (e: TouchEvent) => {
+			const t = e.changedTouches[0];
+			if (t) onEnd(t.clientX, t.clientY);
+			else isDraggingRef.current = false;
+			removeListeners();
+		};
+
+		const removeListeners = () => {
+			window.removeEventListener("mousemove", onMouseMove);
+			window.removeEventListener("mouseup", onMouseUp);
+			window.removeEventListener("touchmove", onTouchMove);
+			window.removeEventListener("touchend", onTouchEnd);
+			window.removeEventListener("touchcancel", onTouchEnd);
+		};
+
+		// Store references so the avatar div's handlers can add them
+		(window as any).__spideyAddListeners = () => {
+			window.addEventListener("mousemove", onMouseMove);
+			window.addEventListener("mouseup", onMouseUp);
+			window.addEventListener("touchmove", onTouchMove, { passive: false });
+			window.addEventListener("touchend", onTouchEnd);
+			window.addEventListener("touchcancel", onTouchEnd);
+		};
+		(window as any).__spideyRemoveListeners = removeListeners;
+
+		return () => {
+			removeListeners();
+			delete (window as any).__spideyAddListeners;
+			delete (window as any).__spideyRemoveListeners;
+		};
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [attendanceData, isChatOpen]);
+
+	const startDrag = (clientX: number, clientY: number) => {
+		if (isSwingingArc) return; // ignore taps while swinging
+		isDraggingRef.current = true;
+		dragDistanceRef.current = 0;
+		dragStartClientRef.current = { x: clientX, y: clientY };
+		dragStartPosRef.current = { ...posRef.current };
+		// biome-ignore lint/suspicious/noExplicitAny: convenience ref
+		(window as any).__spideyAddListeners?.();
 	};
 
 	const handleMouseDown = (e: React.MouseEvent) => {
@@ -474,210 +386,83 @@ export default function SpideyCompanion({
 	};
 
 	const handleTouchStart = (e: React.TouchEvent) => {
-		if (e.touches.length > 0) {
-			const touch = e.touches[0];
-			startDrag(touch.clientX, touch.clientY);
-		}
+		if (e.touches[0]) startDrag(e.touches[0].clientX, e.touches[0].clientY);
 	};
 
-	// Hand coordinates for web attachment
+	// Web line rendering
 	const handX = pos.x + 36;
 	const handY = pos.y + 18;
-
-	// Web tip while shooting/attached during double-click swing
-	const currentWebTip = ceilingAnchor
-		? {
-				x: handX + (ceilingAnchor.x - handX) * webShootProgress,
-				y: handY + (ceilingAnchor.y - handY) * webShootProgress,
-			}
+	const webTip = ceilingAnchor
+		? { x: handX + (ceilingAnchor.x - handX) * webShootProgress, y: handY + (ceilingAnchor.y - handY) * webShootProgress }
 		: null;
 
 	return (
 		<>
-			{/* Web strand anchored to ceiling during Double-Click Web Swing */}
-			{isSwingingArc && ceilingAnchor && currentWebTip && (
-				<svg
-					className="fixed inset-0 pointer-events-none z-40 w-full h-full"
-					style={{ filter: "drop-shadow(0 0 3px rgba(255,255,255,0.95))" }}
-				>
-					{/* Ceiling Web Splat Anchor */}
+			{/* Web strand during swing */}
+			{isSwingingArc && ceilingAnchor && webTip && (
+				<svg className="fixed inset-0 pointer-events-none z-40 w-full h-full" style={{ filter: "drop-shadow(0 0 3px rgba(255,255,255,0.9))" }}>
 					{webShootProgress >= 0.8 && (
 						<g>
-							<circle
-								cx={ceilingAnchor.x}
-								cy={ceilingAnchor.y + 4}
-								r="8"
-								fill="#ffffff"
-								stroke="#0f172a"
-								strokeWidth="2.5"
-							/>
-							<circle
-								cx={ceilingAnchor.x}
-								cy={ceilingAnchor.y + 4}
-								r="3"
-								fill="#94a3b8"
-							/>
-							<circle
-								cx={ceilingAnchor.x - 7}
-								cy={ceilingAnchor.y + 2}
-								r="3.5"
-								fill="#ffffff"
-							/>
-							<circle
-								cx={ceilingAnchor.x + 7}
-								cy={ceilingAnchor.y + 2}
-								r="3.5"
-								fill="#ffffff"
-							/>
+							<circle cx={ceilingAnchor.x} cy={ceilingAnchor.y + 4} r="8" fill="#fff" stroke="#0f172a" strokeWidth="2.5" />
+							<circle cx={ceilingAnchor.x} cy={ceilingAnchor.y + 4} r="3" fill="#94a3b8" />
+							<circle cx={ceilingAnchor.x - 7} cy={ceilingAnchor.y + 2} r="3.5" fill="#fff" />
+							<circle cx={ceilingAnchor.x + 7} cy={ceilingAnchor.y + 2} r="3.5" fill="#fff" />
 						</g>
 					)}
-
-					{/* Outer taut web line */}
-					<line
-						x1={handX}
-						y1={handY}
-						x2={currentWebTip.x}
-						y2={currentWebTip.y}
-						stroke="#0f172a"
-						strokeWidth="4"
-					/>
-					{/* Bright elastic inner core */}
-					<line
-						x1={handX}
-						y1={handY}
-						x2={currentWebTip.x}
-						y2={currentWebTip.y}
-						stroke="#ffffff"
-						strokeWidth="2"
-						strokeDasharray="6 2"
-					/>
+					<line x1={handX} y1={handY} x2={webTip.x} y2={webTip.y} stroke="#0f172a" strokeWidth="4" />
+					<line x1={handX} y1={handY} x2={webTip.x} y2={webTip.y} stroke="#ffffff" strokeWidth="2" strokeDasharray="6 2" />
 				</svg>
 			)}
 
-			{/* Actual Attendance Pop-up Notification */}
+			{/* Attendance alert popup */}
 			{activeMeme && (
-				<div
-					className="fixed top-18 right-4 z-50 max-w-xs bg-white border-4 border-black shadow-[6px_6px_0_#000] p-3 rounded-2xl animate-bounce"
-					style={{ animationIterationCount: 2 }}
-				>
+				<div className="fixed top-18 right-4 z-50 max-w-xs bg-white border-4 border-black shadow-[6px_6px_0_#000] p-3 rounded-2xl animate-bounce" style={{ animationIterationCount: 2 }}>
 					<div className="flex justify-between items-start gap-2">
 						<div>
-							<span className="text-[10px] font-black uppercase bg-red-600 text-white px-2.5 py-0.5 rounded-full border border-black">
-								ATTENDANCE ALERT 🚨
-							</span>
-							<h4 className="font-black text-sm text-black mt-1 leading-tight uppercase">
-								{activeMeme.title}
-							</h4>
-							{activeMeme.subtitle && (
-								<p className="text-xs text-gray-800 font-bold mt-0.5">
-									{activeMeme.subtitle}
-								</p>
-							)}
+							<span className="text-[10px] font-black uppercase bg-red-600 text-white px-2.5 py-0.5 rounded-full border border-black">ATTENDANCE ALERT 🚨</span>
+							<h4 className="font-black text-sm text-black mt-1 leading-tight uppercase">{activeMeme.title}</h4>
+							{activeMeme.subtitle && <p className="text-xs text-gray-800 font-bold mt-0.5">{activeMeme.subtitle}</p>}
 						</div>
-						<button
-							type="button"
-							onClick={() => setActiveMeme(null)}
-							className="text-black font-black text-xs hover:text-red-600 cursor-pointer p-1"
-						>
-							✕
-						</button>
+						<button type="button" onClick={() => setActiveMeme(null)} className="text-black font-black text-xs hover:text-red-600 cursor-pointer p-1">✕</button>
 					</div>
 					{activeMeme.image && (
 						<div className="mt-2 rounded-xl overflow-hidden border-2 border-black max-h-36">
-							<img
-								src={activeMeme.image}
-								alt="meme"
-								className="w-full h-full object-cover"
-							/>
+							<img src={activeMeme.image} alt="meme" className="w-full h-full object-cover" />
 						</div>
 					)}
 				</div>
 			)}
 
-			{/* Spidey Avatar: Strictly bounded inside screen, single tap for chat, double tap for swing, smooth drag */}
+			{/* Spidey avatar */}
 			<div
 				style={{
 					left: `${pos.x}px`,
 					top: `${pos.y}px`,
 					transform: `rotate(${rotation}deg)`,
 					transformOrigin: "36px 18px",
-					transition:
-						isDragging || isSwingingArc
-							? "none"
-							: "all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+					transition: isSwingingArc ? "none" : "left 0.1s ease, top 0.1s ease",
 					touchAction: "none",
+					userSelect: "none",
 				}}
 				onMouseDown={handleMouseDown}
 				onTouchStart={handleTouchStart}
-				className="fixed z-40 select-none cursor-grab active:cursor-grabbing pointer-events-auto"
-				title="Single click: Open Chat | Double click: Web Swing | Drag: Move freely"
+				className="fixed z-40 cursor-grab active:cursor-grabbing pointer-events-auto"
+				title="Tap: Chat | Double-tap: Swing | Drag: Move"
 			>
-				{/* Think Cloud Speech Bubble */}
+				{/* Think-cloud speech bubble */}
 				<div
-					className={`absolute ${
-						poseState === "top_hang" ? "top-full mt-2" : "bottom-full mb-2"
-					} left-1/2 -translate-x-1/2 w-52 sm:w-60 bg-white text-black p-2.5 rounded-2xl border-3 border-black shadow-[4px_4px_0_#000] text-xs font-black leading-snug transition-all duration-300 pointer-events-auto ${
-						isPeeping ? "opacity-100 scale-100" : "opacity-0 scale-75"
-					}`}
+					className={`absolute ${poseState === "top_hang" ? "top-full mt-2" : "bottom-full mb-2"} left-1/2 -translate-x-1/2 w-52 sm:w-60 bg-white text-black p-2.5 rounded-2xl border-3 border-black shadow-[4px_4px_0_#000] text-xs font-black leading-snug transition-all duration-300 pointer-events-none ${isPeeping ? "opacity-100 scale-100" : "opacity-0 scale-75"}`}
 					style={{ transform: `rotate(${-rotation}deg)` }}
 				>
-					{/* Think Cloud Header with 'Hey Spidey' Voice Activation Pill */}
-					<div className="flex items-center justify-between gap-1 mb-1 pb-1 border-b border-gray-200 select-none">
-						<span className="text-[10px] uppercase font-black text-red-600 flex items-center gap-1">
-							🕷️ Spidey
-						</span>
-						<button
-							type="button"
-							onClick={(e) => {
-								e.stopPropagation();
-								const next = spideyVoice.toggle();
-								setIsVoiceActive(next);
-							}}
-							title="Toggle 'Hey Spidey' Voice Command"
-							className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase border border-black cursor-pointer transition-all ${
-								isVoiceActive
-									? "bg-yellow-300 text-black animate-pulse shadow-sm"
-									: "bg-gray-100 text-gray-700 hover:bg-gray-200"
-							}`}
-						>
-							{isVoiceActive ? <Mic size={10} /> : <MicOff size={10} />}
-							<span>{isVoiceActive ? "Listening" : "Hey Spidey"}</span>
-						</button>
-					</div>
-
 					<p className="whitespace-pre-wrap">{speech}</p>
-
-					{/* Pointer tail */}
-					<div
-						className={`absolute ${
-							poseState === "top_hang"
-								? "-top-2.5 border-t-3 border-l-3"
-								: "-bottom-2.5 border-b-3 border-r-3"
-						} left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white border-black rotate-45 pointer-events-none`}
-					/>
+					<div className={`absolute ${poseState === "top_hang" ? "-top-2.5 border-t-3 border-l-3" : "-bottom-2.5 border-b-3 border-r-3"} left-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white border-black rotate-45`} />
 				</div>
 
-				{/* Avatar Sprite Transitions:
-				    - poseState === "top_hang": Top_wall_hang_new.png
-				    - poseState === "swing": spidey_swing_new.png with 3D perspective
-				    - poseState === "idle": automatically resets back to spidey_idle.png!
-				*/}
-				<div
-					className={`w-18 h-18 sm:w-20 sm:h-20 filter transition-all duration-200 ${
-						poseState === "swing"
-							? "scale-110 drop-shadow-[0_14px_18px_rgba(0,0,0,0.5)] [transform:perspective(500px)_rotateX(20deg)_rotateY(-15deg)]"
-							: "drop-shadow-[0_6px_10px_rgba(0,0,0,0.35)] hover:scale-105 active:scale-95"
-					}`}
-				>
+				{/* Avatar image */}
+				<div className={`w-18 h-18 sm:w-20 sm:h-20 filter transition-all duration-200 ${poseState === "swing" ? "scale-110 drop-shadow-[0_14px_18px_rgba(0,0,0,0.5)] [transform:perspective(500px)_rotateX(20deg)_rotateY(-15deg)]" : "drop-shadow-[0_6px_10px_rgba(0,0,0,0.35)] hover:scale-105"}`}>
 					<img
-						src={
-							poseState === "top_hang"
-								? "/spidey/Top_wall_hang_new.png"
-								: poseState === "swing"
-									? "/spidey/spidey_swing_new.png"
-									: "/spidey/spidey_idle.png"
-						}
-						alt="Spidey Companion"
+						src={poseState === "top_hang" ? "/spidey/Top_wall_hang_new.png" : poseState === "swing" ? "/spidey/spidey_swing_new.png" : "/spidey/spidey_idle.png"}
+						alt="Spidey"
 						className="w-full h-full object-contain pixelated pointer-events-none"
 					/>
 				</div>

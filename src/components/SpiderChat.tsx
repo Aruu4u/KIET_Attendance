@@ -1,4 +1,4 @@
-import { Mic, MicOff, Send, Sparkles, X } from "lucide-react";
+import { Send, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useAppContext } from "../contexts/AppContext";
 import { playSound } from "../utils/soundManager";
@@ -26,35 +26,27 @@ export default function SpiderChat({
 		{
 			role: "assistant",
 			content:
-				"Yo Arsal! I'm SpiderBot 🕷️\n\nAsk me anything: how many classes you can skip, which subject is in the danger zone, or your exact attendance stats! Fr fr no cap 🕸️\n\nTip: Tap the mic or say 'Hey Spidey' to ask by voice! 🎙️",
+				"Yo Arsal! I'm SpiderBot 🕷️\n\nAsk me anything: how many classes you can skip, which subject is in the danger zone, or your exact attendance stats! Fr fr no cap 🕸️\n\nTip: You can also say 'Hey Spidey' anytime to ask! 🎙️",
 		},
 	]);
 	const [input, setInput] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
-	const [isVoiceActive, setIsVoiceActive] = useState(false);
-	const [voiceStatusText, setVoiceStatusText] = useState("Tap mic to speak");
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 
-	// Voice Assistant integration for SpiderChat
+	// Voice Assistant integration for SpiderChat (no button needed, responds to Hey Spidey)
 	useEffect(() => {
 		if (!isOpen) return;
 
-		const unsubscribeStatus = spideyVoice.onStatus((listening, msg) => {
-			setIsVoiceActive(listening);
-			setVoiceStatusText(msg);
-		});
-
-		const unsubscribeQuery = spideyVoice.onQuery((query) => {
+		const unsubscribeQuery = (query: string) => {
 			if (!query.trim()) return;
 			sendDirectMessage(query);
-		});
+		};
 
-		setIsVoiceActive(spideyVoice.getIsRunning());
+		const unsub = spideyVoice.onQuery(unsubscribeQuery);
 
 		return () => {
-			unsubscribeStatus();
-			unsubscribeQuery();
+			unsub();
 		};
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [isOpen, activeAttendanceData]);
@@ -107,12 +99,6 @@ export default function SpiderChat({
 
 	const sendMessage = () => sendDirectMessage(input);
 
-	const toggleVoice = () => {
-		const next = spideyVoice.toggle();
-		setIsVoiceActive(next);
-		if (next) setVoiceStatusText("Listening for 'Hey Spidey'... 🎙️");
-	};
-
 	const handleKeyDown = (e: React.KeyboardEvent) => {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
@@ -141,43 +127,14 @@ export default function SpiderChat({
 						</p>
 					</div>
 				</div>
-				<div className="flex items-center gap-2">
-					<button
-						type="button"
-						onClick={toggleVoice}
-						title={isVoiceActive ? "Voice Active ('Hey Spidey')" : "Enable 'Hey Spidey' Voice"}
-						className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black uppercase border-2 border-black transition-all cursor-pointer ${
-							isVoiceActive
-								? "bg-yellow-300 text-black animate-pulse shadow-sm"
-								: "bg-red-800 text-white hover:bg-red-700"
-						}`}
-					>
-						{isVoiceActive ? <Mic size={12} /> : <MicOff size={12} />}
-						<span>{isVoiceActive ? "Listening" : "Hey Spidey"}</span>
-					</button>
-					<button
-						type="button"
-						onClick={onClose}
-						className="text-white hover:text-black font-black p-1 cursor-pointer transition-colors"
-					>
-						<X size={18} />
-					</button>
-				</div>
+				<button
+					type="button"
+					onClick={onClose}
+					className="text-white hover:text-black font-black p-1 cursor-pointer transition-colors"
+				>
+					<X size={18} />
+				</button>
 			</div>
-
-			{/* Voice Banner when active */}
-			{isVoiceActive && (
-				<div className="px-3 py-1 bg-yellow-200 text-black border-b-2 border-black flex items-center justify-between text-[11px] font-bold">
-					<span className="truncate">🎙️ {voiceStatusText}</span>
-					<button
-						type="button"
-						onClick={toggleVoice}
-						className="text-xs font-black hover:text-red-600 cursor-pointer ml-2"
-					>
-						✕
-					</button>
-				</div>
-			)}
 
 			{/* Messages List */}
 			<div className="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50 custom-table-scroll">
@@ -227,18 +184,6 @@ export default function SpiderChat({
 						disabled={isLoading}
 						className="flex-1 text-xs font-bold bg-gray-50 border-2 border-black rounded-xl px-3 py-2 outline-none focus:bg-white shadow-[2px_2px_0_#000]"
 					/>
-					<button
-						type="button"
-						onClick={toggleVoice}
-						title="Voice Command ('Hey Spidey')"
-						className={`px-2.5 py-2 rounded-xl border-2 border-black shadow-[2px_2px_0_#000] cursor-pointer transition-all ${
-							isVoiceActive
-								? "bg-yellow-300 text-black animate-pulse"
-								: "bg-gray-100 text-black hover:bg-gray-200"
-						}`}
-					>
-						{isVoiceActive ? <Mic size={15} /> : <MicOff size={15} />}
-					</button>
 					<button
 						type="button"
 						onClick={sendMessage}
