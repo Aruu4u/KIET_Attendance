@@ -70,10 +70,9 @@ async function loadAttendance(
 interface LoginFormProps {
 	setIsTnCVisible: React.Dispatch<React.SetStateAction<boolean>>;
 	onModeChange?: (mode: "proxy" | "live") => void;
-	gmailAuthorized: boolean;
 }
 
-function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginFormProps) {
+function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 	const otpRef = useRef<HTMLInputElement>(null);
 	const [step, setStep] = useState<"credentials" | "otp">("credentials");
 	const [transactionId, setTransactionId] = useState<string>("");
@@ -230,11 +229,7 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 			setOtpStatus(`📧 Fetching OTP from Gmail... (${attempts}/${MAX_ATTEMPTS})`);
 
 			try {
-				const localToken = localStorage.getItem("google_refresh_token") || "";
-				const url = `/api/get-otp?after=${loginStartTimeRef.current}${localToken ? `&refresh_token=${encodeURIComponent(localToken)}` : ""}`;
-				const res = await fetch(url, {
-					headers: localToken ? { "x-refresh-token": localToken } : {},
-				});
+				const res = await fetch("/api/get-otp");
 				const data = await res.json();
 
 				if (cancelled) return;
@@ -423,21 +418,11 @@ function LoginForm({ setIsTnCVisible, onModeChange, gmailAuthorized }: LoginForm
 					</p>
 				</div>
 
-				{/* Gmail Auth Action Banner */}
-				{!gmailAuthorized && (
-					<a
-						href="/api/auth/google"
-						className="block mb-5 text-center text-xs font-black py-2.5 px-4 rounded-xl border-2 border-black shadow-[3px_3px_0_#000] bg-blue-100 text-blue-900 hover:bg-blue-200 transition-all active:translate-y-0.5"
-					>
-						🔗 Authorize Gmail Access for Auto-OTP (One-Time)
-					</a>
-				)}
-				{gmailAuthorized && (
-					<div className="mb-5 text-center text-xs font-bold py-2 px-3 rounded-xl border-2 border-black shadow-[2px_2px_0_#000] bg-emerald-100 text-emerald-900 flex items-center justify-center gap-1.5">
-						<Sparkles size={14} className="text-emerald-700" />
-						<span>Gmail Authorized &bull; OTP auto-retrieval active</span>
-					</div>
-				)}
+				{/* CyberVidya Badge */}
+				<div className="mb-5 text-center text-xs font-bold py-2 px-3 rounded-xl border-2 border-black shadow-[2px_2px_0_#000] bg-emerald-100 text-emerald-950 flex items-center justify-center gap-1.5">
+					<Sparkles size={14} className="text-emerald-700" />
+					<span>Auto-OTP Active &bull; Zero manual entry required</span>
+				</div>
 
 				{/* API Mode Toggle */}
 				<div className="mb-6 flex flex-col items-center gap-1.5">

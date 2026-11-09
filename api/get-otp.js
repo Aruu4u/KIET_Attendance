@@ -1,16 +1,5 @@
 // Robust extraction of 6-digit OTP from Gmail
-function parseCookies(cookieHeader) {
-  const cookies = {};
-  if (!cookieHeader) return cookies;
-  for (const part of cookieHeader.split(';')) {
-    const idx = part.indexOf('=');
-    if (idx < 0) continue;
-    const name = part.slice(0, idx).trim();
-    const value = decodeURIComponent(part.slice(idx + 1).trim());
-    cookies[name] = value;
-  }
-  return cookies;
-}
+// Uses server environment variable GOOGLE_REFRESH_TOKEN (permanent, zero UI authorization needed)
 
 function getEmailBody(payload) {
   if (!payload) return '';
@@ -33,20 +22,16 @@ function getEmailBody(payload) {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-refresh-token');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const cookies = parseCookies(req.headers.cookie);
-  // Support refresh token from Cookie, Query param, or Custom Header (ideal for Mobile Web/Safari)
-  const refreshToken =
-    cookies.google_refresh_token ||
-    req.headers['x-refresh-token'] ||
-    req.query.refresh_token;
+  // Read the permanent token from Vercel Environment Variables
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
   if (!refreshToken) {
-    return res.status(401).json({
-      status: 'unauthorized',
-      message: 'Gmail not authorized. Please visit /api/auth/google to authorize.',
+    return res.status(500).json({
+      status: 'config_error',
+      message: 'GOOGLE_REFRESH_TOKEN environment variable is not configured on Vercel.',
     });
   }
 
@@ -66,15 +51,16 @@ export default async function handler(req, res) {
 
     if (!tokenData.access_token) {
       console.error('Refresh token error:', tokenData);
-      return res.status(401).json({
+      return res.status(500).json({
         status: 'token_error',
-        message: 'Could not refresh Gmail access. Re-authorize at /api/auth/google.',
+        message: 'Could not generate access token from permanent refresh token.',
+        details: tokenData,
       });
     }
 
     const accessToken = tokenData.access_token;
 
-    // Flexible search query: matches cybervidya OR "Cyber Vidya" OR "Login OTP"
+    // Search query for CyberVidya Login OTP email
     const query = '(from:cybervidya OR "Cyber Vidya" OR "Login OTP")';
 
     const searchRes = await fetch(
@@ -88,7 +74,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ status: 'not_found', message: 'No matching OTP email found in Gmail.' });
     }
 
-    // Iterate through recent candidate messages
+    // Inspect the latest 3 candidate emails
     for (const msgSummary of searchData.messages) {
       const msgRes = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgSummary.id}?format=full`,

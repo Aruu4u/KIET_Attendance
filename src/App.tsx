@@ -44,40 +44,7 @@ function App() {
 	};
 
 	const [isTnCVisible, setIsTnCVisible] = useState<boolean>(false);
-	const [gmailAuthorized, setGmailAuthorized] = useState<boolean>(false);
 	const hasSelectedLiveRef = useRef<boolean>(false);
-
-	// Detect Gmail auth success from URL param, localStorage, or API check
-	useEffect(() => {
-		const params = new URLSearchParams(window.location.search);
-		if (params.get("gmail_auth") === "success") {
-			setGmailAuthorized(true);
-			try {
-				localStorage.setItem("gmail_authorized", "true");
-			} catch {}
-			window.history.replaceState({}, document.title, window.location.pathname);
-		} else {
-			try {
-				if (localStorage.getItem("gmail_authorized") === "true") {
-					setGmailAuthorized(true);
-				}
-			} catch {}
-		}
-
-		// Also check backend to verify
-		const localToken = localStorage.getItem("google_refresh_token") || "";
-		fetch(`/api/get-otp${localToken ? `?refresh_token=${encodeURIComponent(localToken)}` : ""}`)
-			.then((r) => r.json())
-			.then((d) => {
-				if (d && d.status !== "unauthorized") {
-					setGmailAuthorized(true);
-					try {
-						localStorage.setItem("gmail_authorized", "true");
-					} catch {}
-				}
-			})
-			.catch(() => {});
-	}, []);
 
 	// Handle token passed via URL (extension flow)
 	useEffect(() => {
@@ -185,7 +152,6 @@ function App() {
 								onModeChange={(mode) => {
 									if (mode === "live") hasSelectedLiveRef.current = true;
 								}}
-								gmailAuthorized={gmailAuthorized}
 							/>
 						)
 					) : (
