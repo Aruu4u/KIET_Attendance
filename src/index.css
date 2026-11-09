@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 /* =====================================================
-   GEN-Z LIGHT SPIDEY THEME — "F this Attendance"
+   GEN-Z PIXEL VIDEO GAME THEME — "F this Attendance"
    ===================================================== */
 
 :root {
   --bg-light: #f8fafc;
   --spider-red: #ef4444;
-  --spider-blue: #3b82f6;
-  --spider-black: #111827;
-  --brutal-border: 2.5px solid #000;
-  --brutal-shadow: 4px 4px 0px #000;
+  --spider-blue: #2563eb;
+  --spider-black: #000000;
+  --game-border: 3.5px solid #000000;
+  --game-shadow: 4px 4px 0px #000000;
 }
 
 body {
@@ -20,41 +20,41 @@ body {
   overflow-x: hidden;
 }
 
-/* Light Spidey Pixel City background pattern */
+/* Retro Video-Game Grid background pattern */
 .spidey-light-bg {
   background-color: #f8fafc;
   background-image: 
-    radial-gradient(#cbd5e1 1px, transparent 1px),
-    radial-gradient(#e2e8f0 1px, #f8fafc 1px);
+    linear-gradient(to right, rgba(0, 0, 0, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.06) 1px, #f8fafc 1px);
   background-size: 24px 24px;
-  background-position: 0 0, 12px 12px;
   min-height: 100vh;
 }
 
-/* Neo-brutalist panels with crisp black borders */
+/* Neo-brutalist Pixel Game panels */
 .style-panel {
   position: relative;
   background: #ffffff;
-  border: 2.5px solid #000000;
-  box-shadow: 4px 4px 0px #000000;
-  border-radius: 14px;
+  border: 3.5px solid #000000;
+  box-shadow: 6px 6px 0px #000000;
+  border-radius: 16px;
 }
 
 .style-border {
-  border: 2px solid #000000 !important;
-  box-shadow: 3px 3px 0px #000000 !important;
-  border-radius: 10px;
+  border: 3px solid #000000 !important;
+  box-shadow: 4px 4px 0px #000000 !important;
+  border-radius: 12px;
 }
 
 .style-text {
   font-family: inherit;
-  font-weight: 800;
+  font-weight: 900;
   letter-spacing: -0.01em;
 }
 
-/* Image pixelated rendering for 8-bit style */
+/* Image pixelated rendering for crisp 8-bit & 16-bit video game art */
 .pixelated {
   image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
   image-rendering: crisp-edges;
 }
 
@@ -85,25 +85,6 @@ body {
 @media (min-width: 640px) {
   .btn-text { display: inline; }
   .gap-responsive { gap: 1rem; }
-}
-
-/* Custom neat scrollbars */
-.custom-table-scroll::-webkit-scrollbar {
-  height: 6px;
-  width: 6px;
-}
-
-.custom-table-scroll::-webkit-scrollbar-track {
-  background: #f1f5f9;
-}
-
-.custom-table-scroll::-webkit-scrollbar-thumb {
-  background: #94a3b8;
-  border-radius: 9999px;
-}
-
-.custom-table-scroll::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
 }
 
 /* Chat pop */

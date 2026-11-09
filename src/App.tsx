@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Attendance from "./components/Attendance";
 import Footer from "./components/Footer";
 import LoginForm from "./components/LoginForm";
@@ -44,7 +44,7 @@ function App() {
 	};
 
 	const [isTnCVisible, setIsTnCVisible] = useState<boolean>(false);
-	const hasSelectedLiveRef = useRef<boolean>(false);
+	const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
 
 	// Handle token passed via URL (extension flow)
 	useEffect(() => {
@@ -111,19 +111,19 @@ function App() {
 
 	return (
 		<div className="min-h-screen flex flex-col spidey-light-bg text-black">
-			{/* Top Navbar with GenZ "F this Attendance" Title + Sound/Meme Mute Toggle */}
-			<header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b-3 border-black shadow-[0_4px_0_#000] px-4 py-3 flex items-center justify-between">
+			{/* Top Navbar with GenZ Retro Video Game Title + Sound/Meme Mute Toggle */}
+			<header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b-4 border-black shadow-[0_4px_0_#000] px-4 py-3 flex items-center justify-between">
 				<div className="flex items-center gap-2">
 					<span className="text-2xl animate-bounce" style={{ animationDuration: '2s' }}>🕷️</span>
 					<div>
-						<h1 className="font-black text-lg md:text-xl tracking-tight text-black flex items-center gap-1.5 uppercase">
+						<h1 className="font-black text-lg md:text-xl tracking-tight text-black flex items-center gap-1.5 uppercase font-mono">
 							<span>F this Attendance</span>
-							<span className="text-[10px] bg-red-500 text-white font-bold px-2 py-0.5 rounded-full border border-black shadow-[1px_1px_0_#000]">
+							<span className="text-[10px] bg-red-600 text-white font-black px-2 py-0.5 rounded-full border-2 border-black shadow-[1px_1px_0_#000]">
 								Fr fr
 							</span>
 						</h1>
-						<p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest hidden sm:block">
-							KIET CyberVidya &bull; Zero Cap Attendance Tracker
+						<p className="text-[10px] font-black text-gray-500 uppercase tracking-widest hidden sm:block">
+							KIET CyberVidya &bull; Pixel Game Edition
 						</p>
 					</div>
 				</div>
@@ -147,22 +147,23 @@ function App() {
 						isTnCVisible ? (
 							<TnC setIsPasswordVisible={setIsTnCVisible} />
 						) : (
-							<LoginForm
-								setIsTnCVisible={setIsTnCVisible}
-								onModeChange={(mode) => {
-									if (mode === "live") hasSelectedLiveRef.current = true;
-								}}
-							/>
+							<LoginForm setIsTnCVisible={setIsTnCVisible} />
 						)
 					) : (
 						<Attendance />
 					)}
 
-					{/* Spidey Companion (Pixel Avatar with speech bubbles & meme pop-ups) */}
-					<SpideyCompanion attendanceData={attendanceData} />
+					{/* Spidey Companion: Single tap opens chat if logged in; asks for login if on home screen */}
+					<SpideyCompanion
+						attendanceData={attendanceData}
+						onOpenChat={() => setIsChatOpen(true)}
+					/>
 
-					{/* SpiderBot AI Chat widget */}
-					{attendanceData && <SpiderChat />}
+					{/* SpiderBot AI Chat Dialog (Opens seamlessly from Spidey) */}
+					<SpiderChat
+						isOpen={isChatOpen}
+						onClose={() => setIsChatOpen(false)}
+					/>
 				</AttendanceDataContext.Provider>
 			</main>
 

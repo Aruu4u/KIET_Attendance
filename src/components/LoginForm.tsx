@@ -10,9 +10,7 @@ import {
 	REMEMBER_ME_COOKIE_NAME,
 	STUDENT_ID_COOKIE_NAME,
 	USERNAME_COOKIE_NAME,
-	getApiMode,
 	getBaseUrl,
-	setApiMode,
 } from "../types/constants";
 import type {
 	EncryptLoginResponse,
@@ -23,7 +21,7 @@ import { setAuthCookie } from "../utils/jwt";
 import { encryptPassword, fetchAttendanceData } from "../utils/LoginUtils";
 import InstallExtensionPage from "./InstallExtensionPage";
 
-// Hardcoded personal credentials
+// Hardcoded student credentials
 const HARDCODED_USERNAME = "202401100200087";
 const HARDCODED_PASSWORD = "Arsal@2428";
 
@@ -72,15 +70,13 @@ interface LoginFormProps {
 	onModeChange?: (mode: "proxy" | "live") => void;
 }
 
-function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
+function LoginForm({ setIsTnCVisible }: LoginFormProps) {
 	const otpRef = useRef<HTMLInputElement>(null);
 	const [step, setStep] = useState<"credentials" | "otp">("credentials");
 	const [transactionId, setTransactionId] = useState<string>("");
-	const [apiMode, setApiModeState] = useState<"proxy" | "live">(() => getApiMode());
 	const submittedUsernameRef = useRef<string>("");
 	const submittedPasswordRef = useRef<string>("");
 	const submittedRememberMeRef = useRef<boolean>(true);
-	const loginStartTimeRef = useRef<number>(0);
 	const [error, setError] = useState<string>("");
 	const [isExtensionError, setIsExtensionError] = useState<boolean>(false);
 	const [showInstallPage, setShowInstallPage] = useState<boolean>(false);
@@ -90,14 +86,6 @@ function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 	const hasAutoLoggedIn = useRef(false);
 
 	const { setAttendanceData } = useAppContext();
-
-	const handleModeToggle = (newMode: "proxy" | "live") => {
-		setApiModeState(newMode);
-		setApiMode(newMode);
-		setError("");
-		setIsExtensionError(false);
-		onModeChange?.(newMode);
-	};
 
 	const handleAuthError = (
 		err: unknown,
@@ -114,12 +102,7 @@ function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 		if (status === 400) {
 			setError(serverReason || badRequestMessage);
 		} else if (status === 403) {
-			if (apiMode === "live") {
-				setError("Please Update the Extension to the latest version 3.6!");
-				setIsExtensionError(true);
-			} else {
-				setError(serverReason || forbiddenMessage);
-			}
+			setError(serverReason || forbiddenMessage);
 		} else {
 			setError(networkErrorMessage);
 		}
@@ -226,7 +209,7 @@ function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 		const tryFetchOtp = async () => {
 			if (cancelled) return;
 			attempts++;
-			setOtpStatus(`📧 Fetching OTP from Gmail... (${attempts}/${MAX_ATTEMPTS})`);
+			setOtpStatus(`📧 Auto-fetching OTP from Gmail... (${attempts}/${MAX_ATTEMPTS})`);
 
 			try {
 				const res = await fetch("/api/get-otp");
@@ -235,20 +218,11 @@ function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 				if (cancelled) return;
 
 				if (data.status === "success" && data.otp) {
-					setOtpStatus(`✅ OTP received (${data.otp})! Verifying...`);
+					setOtpStatus(`✅ OTP found (${data.otp})! Verifying with CyberVidya...`);
 					await submitOtp(data.otp);
 					return;
 				}
 
-				if (data.status === "unauthorized") {
-					setOtpStatus("");
-					setError(
-						"⚠️ Gmail not authorized. Click 'Authorize Gmail' above to enable auto-OTP.",
-					);
-					return;
-				}
-
-				// Retry
 				if (attempts < MAX_ATTEMPTS) {
 					setTimeout(tryFetchOtp, 3000);
 				} else {
@@ -267,8 +241,8 @@ function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 			}
 		};
 
-		const initialTimer = setTimeout(tryFetchOtp, 4000);
-		setOtpStatus("⏳ Waiting for OTP email to land in Gmail...");
+		const initialTimer = setTimeout(tryFetchOtp, 3500);
+		setOtpStatus("⏳ Waiting for CyberVidya OTP email...");
 
 		return () => {
 			cancelled = true;
@@ -284,12 +258,12 @@ function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 
 		const doAutoLogin = async () => {
 			setLoading(true);
-			setAutoLoginStatus("🕸️ Connecting to CyberVidya proxy...");
+			setAutoLoginStatus("🕸️ Connecting to CyberVidya...");
 
 			const enteredUser = HARDCODED_USERNAME;
 			const enteredPass = HARDCODED_PASSWORD;
 
-			// Step 1: Try legacy direct login
+			// Direct login attempt
 			try {
 				const directResponse = await axios.post<LoginResponse>(
 					`${getBaseUrl()}/api/auth/login`,
@@ -322,10 +296,9 @@ function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 				}
 			}
 
-			// Step 2: Encrypted login (triggers OTP flow)
+			// Encrypted login (triggers OTP generation)
 			try {
 				setAutoLoginStatus("🔐 Authenticating & requesting OTP...");
-				loginStartTimeRef.current = Date.now();
 
 				const loginResponse = await axios.post<EncryptLoginResponse>(
 					`${getBaseUrl()}/api/auth/encrypt/login`,
@@ -389,14 +362,14 @@ function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 	}
 
 	return (
-		<div className="flex flex-col mb-16 mt-8 items-center justify-center p-4">
-			<div className="w-full max-w-md p-6 sm:p-8 bg-white border-3 border-black shadow-[8px_8px_0_#000] rounded-2xl relative">
-				{/* Top badge */}
-				<div className="flex justify-between items-center mb-6">
-					<span className="text-[11px] font-black uppercase tracking-wider bg-red-100 text-red-700 px-3 py-1 rounded-full border-2 border-black shadow-[2px_2px_0_#000]">
+		<div className="flex flex-col mb-16 mt-6 items-center justify-center p-4">
+			<div className="w-full max-w-md p-6 sm:p-8 bg-white border-4 border-black shadow-[8px_8px_0_#000] rounded-2xl relative">
+				{/* Top badge row: Fixed flex-wrap to prevent overlap on mobile */}
+				<div className="flex flex-wrap items-center justify-between gap-2 mb-6 pb-2 border-b-2 border-dashed border-gray-200">
+					<span className="text-[10px] font-black uppercase tracking-wider bg-red-100 text-red-700 px-2.5 py-1 rounded-full border-2 border-black shadow-[2px_2px_0_#000] whitespace-nowrap">
 						🕸️ KIET Student Portal
 					</span>
-					<span className="text-xs font-bold text-gray-500">
+					<span className="text-[11px] font-black text-gray-700 tracking-wide whitespace-nowrap bg-gray-100 px-2.5 py-0.5 rounded-md border border-gray-300">
 						Roll: 202401100200087
 					</span>
 				</div>
@@ -405,9 +378,9 @@ function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 				<div className="flex flex-col items-center mb-6">
 					<div className="w-20 h-20 mb-3 rounded-2xl p-2 bg-red-50 border-3 border-black shadow-[4px_4px_0_#000] flex items-center justify-center">
 						<img
-							src="/spidey/spidey_idle.jpg"
+							src="/spidey/spidey_idle.png"
 							alt="Spidey"
-							className="w-full h-full object-contain"
+							className="w-full h-full object-contain pixelated"
 						/>
 					</div>
 					<h2 className="text-2xl sm:text-3xl font-black text-center text-black tracking-tight uppercase">
@@ -418,30 +391,10 @@ function LoginForm({ setIsTnCVisible, onModeChange }: LoginFormProps) {
 					</p>
 				</div>
 
-				{/* CyberVidya Badge */}
-				<div className="mb-5 text-center text-xs font-bold py-2 px-3 rounded-xl border-2 border-black shadow-[2px_2px_0_#000] bg-emerald-100 text-emerald-950 flex items-center justify-center gap-1.5">
-					<Sparkles size={14} className="text-emerald-700" />
+				{/* Automated OTP status badge */}
+				<div className="mb-6 text-center text-xs font-bold py-2.5 px-3 rounded-xl border-2 border-black shadow-[2px_2px_0_#000] bg-emerald-100 text-emerald-950 flex items-center justify-center gap-1.5">
+					<Sparkles size={14} className="text-emerald-700 shrink-0" />
 					<span>Auto-OTP Active &bull; Zero manual entry required</span>
-				</div>
-
-				{/* API Mode Toggle */}
-				<div className="mb-6 flex flex-col items-center gap-1.5">
-					<div className="grid grid-cols-2 w-60 bg-gray-100 border-2 border-black p-1 rounded-xl shadow-[2px_2px_0_#000]">
-						{(["proxy", "live"] as const).map((mode) => (
-							<button
-								key={mode}
-								type="button"
-								onClick={() => handleModeToggle(mode)}
-								className={`py-1.5 text-xs font-black uppercase rounded-lg transition-all cursor-pointer ${
-									apiMode === mode
-										? "bg-black text-white shadow-sm"
-										: "text-gray-600 hover:text-black"
-								}`}
-							>
-								{mode === "proxy" ? "Proxy (No Ext)" : "Live ERP"}
-							</button>
-						))}
-					</div>
 				</div>
 
 				{/* Loading State */}
