@@ -26,6 +26,9 @@ import InstallExtensionPage from "./InstallExtensionPage";
 const HARDCODED_USERNAME = "202401100200087";
 const HARDCODED_PASSWORD = "Arsal@2428";
 
+// Toggle auto-OTP login on mount. Set to false to avoid wasting OTPs during testing.
+const AUTO_LOGIN_ENABLED = false;
+
 interface ApiErrorResponse {
 	error?: { reason?: string };
 }
@@ -282,8 +285,9 @@ function LoginForm({ setIsTnCVisible }: LoginFormProps) {
 		};
 	}, [step, submitOtp]);
 
-	// --- Auto-login on mount (skip if cached data or token is active to avoid OTP lockouts) ---
+	// --- Auto-login on mount (skip if cached data, token is active, or AUTO_LOGIN_ENABLED is false to avoid OTP lockouts) ---
 	useEffect(() => {
+		if (!AUTO_LOGIN_ENABLED) return;
 		const token = Cookies.get(AUTH_COOKIE_NAME);
 		const cached = (() => {
 			try {

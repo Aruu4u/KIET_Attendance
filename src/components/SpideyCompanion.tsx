@@ -22,7 +22,7 @@ export default function SpideyCompanion({
 	isChatOpen = false,
 }: SpideyCompanionProps) {
 	const [speech, setSpeech] = useState<string>(
-		"Tap me to chat 💬  Double-tap to swing 🕸️\nSay 'Hey Spidey' to ask anytime! 🎙️",
+		"Tap me to swing 🕸️  Double-tap to chat 💬\nSay 'Hey Spidey' to ask anytime! 🎙️",
 	);
 	const [isPeeping, setIsPeeping] = useState<boolean>(true);
 	const [activeMeme, setActiveMeme] = useState<PopMeme | null>(null);
@@ -401,15 +401,9 @@ export default function SpideyCompanion({
 
 	// ── Single tap: Open chatbot ──
 	const triggerChat = () => {
-		if (!attendanceData) {
-			setSpeech("Login first bro, then we chat! 🔒🕸️");
-			setIsPeeping(true);
-			playSound("dexter", 0.4);
-		} else {
-			setSpeech("Opening SpiderBot... 💬🕷️");
-			setIsPeeping(true);
-			onOpenChat();
-		}
+		setSpeech("Opening SpiderBot... 💬🕷️");
+		setIsPeeping(true);
+		onOpenChat();
 	};
 
 	// ────────────────────────────────────────────────
@@ -561,20 +555,20 @@ export default function SpideyCompanion({
 			const timeSinceLastTap = now - lastTapTimeRef.current;
 
 			if (timeSinceLastTap < 280 && timeSinceLastTap > 0) {
-				// DOUBLE TAP → SHOOT WEB & SWING!
+				// DOUBLE TAP → OPEN CHATBOT
 				if (singleTapTimerRef.current) {
 					clearTimeout(singleTapTimerRef.current);
 					singleTapTimerRef.current = null;
 				}
 				lastTapTimeRef.current = 0;
-				triggerWebSwing(posRef.current.x, posRef.current.y);
+				triggerChat();
 			} else {
-				// SINGLE TAP → OPEN CHAT (after 220ms confirmation)
+				// SINGLE TAP → SHOOT WEB & SWING (after 220ms to rule out double-tap)
 				lastTapTimeRef.current = now;
 				if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
 				singleTapTimerRef.current = setTimeout(() => {
 					singleTapTimerRef.current = null;
-					triggerChat();
+					triggerWebSwing(posRef.current.x, posRef.current.y);
 				}, 220);
 			}
 		};
@@ -736,7 +730,7 @@ export default function SpideyCompanion({
 					}
 				}}
 				className="fixed z-40 cursor-grab active:cursor-grabbing pointer-events-auto"
-				title="Tap: Chat | Double-tap: Swing | Drag: Move"
+				title="Tap: Swing | Double-tap: Chat | Drag: Move"
 			>
 				{/* Think-cloud speech bubble */}
 				<div
