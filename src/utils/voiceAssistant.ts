@@ -13,115 +13,128 @@ class SpideyVoiceAssistant {
 	private isAwake: boolean = false;
 	// biome-ignore lint/suspicious/noExplicitAny: timeout
 	private awakeTimeout: any = null;
+	// biome-ignore lint/suspicious/noExplicitAny: restart timeout
+	private restartTimer: any = null;
 
 	constructor() {
 		if (typeof window !== "undefined") {
-			// biome-ignore lint/suspicious/noExplicitAny: Web Speech API
-			const SpeechRec =
-				(window as any).SpeechRecognition ||
-				(window as any).webkitSpeechRecognition;
+			this.init();
+		}
+	}
 
-			if (SpeechRec) {
-				try {
-					const rec = new SpeechRec();
-					rec.continuous = true;
-					rec.interimResults = true;
-					rec.lang = "en-IN";
+	private init() {
+		// biome-ignore lint/suspicious/noExplicitAny: Web Speech API
+		const SpeechRec =
+			(window as any).SpeechRecognition ||
+			(window as any).webkitSpeechRecognition;
 
-					rec.onstart = () => {
-						this.isRunning = true;
-						this.notifyStatus(true, "Say 'Hey Spidey' to ask! 🎙️");
-					};
+		if (!SpeechRec) {
+			console.warn("SpeechRecognition not supported in this browser.");
+			return;
+		}
 
-					// biome-ignore lint/suspicious/noExplicitAny: Web Speech API event
-					rec.onresult = (event: any) => {
-						for (let i = event.resultIndex; i < event.results.length; i++) {
-							const res = event.results[i];
-							const transcript = res[0]?.transcript?.trim().toLowerCase() || "";
-							const isFinal = res.isFinal;
+		try {
+			const rec = new SpeechRec();
+			rec.continuous = true;
+			rec.interimResults = true;
+			rec.lang = "en-IN"; // also picks up English & Hinglish well
 
-							// Wake words variations
-							const wakeWords = [
-								"hey spidey",
-								"hey spider",
-								"spidey",
-								"hi spidey",
-								"ok spidey",
-								"yo spidey",
-								"hello spidey",
-							];
+			rec.onstart = () => {
+				this.isRunning = true;
+				this.notifyStatus(true, "Spidey is listening... 🎙️");
+			};
 
-							const matchedWake = wakeWords.find((w) =>
-								transcript.includes(w),
-							);
+			// biome-ignore lint/suspicious/noExplicitAny: Web Speech API event
+			rec.onresult = (event: any) => {
+				for (let i = event.resultIndex; i < event.results.length; i++) {
+					const res = event.results[i];
+					const transcript = res[0]?.transcript?.trim().toLowerCase() || "";
+					const isFinal = res.isFinal;
 
-							if (matchedWake) {
-								this.isAwake = true;
-								clearTimeout(this.awakeTimeout);
-								// Keep listening for query for 10 seconds
-								this.awakeTimeout = setTimeout(() => {
-									this.isAwake = false;
-								}, 10000);
+					// Wake words variations - flexible matching
+					const wakeWords = [
+						"hey spidey",
+						"hey spider",
+						"a spidey",
+						"hey speedy",
+						"spidey",
+						"spider",
+						"hi spidey",
+						"ok spidey",
+						"yo spidey",
+						"hello spidey",
+						"sun spidey",
+						"arre spidey"
+					];
 
-								// Extract query portion after the wake word
-								const parts = transcript.split(matchedWake);
-								const query = parts[parts.length - 1]?.trim();
+					const matchedWake = wakeWords.find((w) => transcript.includes(w));
 
-								if (query && query.length > 2) {
-									if (isFinal) {
-										this.notifyQuery(query, transcript);
-										this.isAwake = false;
-									} else {
-										this.notifyStatus(true, `Heard: "${query}"...`);
-									}
-								} else {
-									this.notifyStatus(
-										true,
-										"Yo! Spidey's listening... ask anything! 🕸️",
-									);
-								}
-							} else if (this.isAwake) {
-								if (transcript.length > 2) {
-									if (isFinal) {
-										this.notifyQuery(transcript, transcript);
-										this.isAwake = false;
-									} else {
-										this.notifyStatus(true, `Heard: "${transcript}"...`);
-									}
-								}
-							}
-						}
-					};
+					if (matchedWake) {
+						this.isAwake = true;
+						clearTimeout(this.awakeTimeout);
+						// Keep listening window open for query
+						this.awakeTimeout = setTimeout(() => {
+							this.isAwake = false;
+						}, 12000);
 
-					// biome-ignore lint/suspicious/noExplicitAny: Web Speech API error
-					rec.onerror = (e: any) => {
-						if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-							this.isRunning = false;
-							this.notifyStatus(
-								false,
-								"Mic permission needed! Tap mic to allow 🎙️",
-							);
-						}
-					};
+						// Extract query portion after wake word
+						const parts = transcript.split(matchedWake);
+						const query = parts[parts.length - 1]?.trim();
 
-					rec.onend = () => {
-						// Auto-restart if user intentionally enabled listening
-						if (this.isRunning) {
-							try {
-								rec.start();
-							} catch {
-								// Handled gracefully
+						if (query && query.length > 2) {
+							if (isFinal) {
+								this.notifyQuery(query, transcript);
+								this.isAwake = false;
+							} else {
+								this.notifyStatus(true, `Heard: "${query}"...`);
 							}
 						} else {
-							this.notifyStatus(false, "Voice inactive");
+							this.notifyStatus(
+								true,
+								"Yo! Spidey's listening... ask anything! 🕸️",
+							);
 						}
-					};
-
-					this.recognition = rec;
-				} catch (e) {
-					console.warn("Speech recognition initialization failed:", e);
+					} else if (this.isAwake) {
+						if (transcript.length > 2) {
+							if (isFinal) {
+								this.notifyQuery(transcript, transcript);
+								this.isAwake = false;
+							} else {
+								this.notifyStatus(true, `Heard: "${transcript}"...`);
+							}
+						}
+					}
 				}
-			}
+			};
+
+			// biome-ignore lint/suspicious/noExplicitAny: Web Speech API error
+			rec.onerror = (e: any) => {
+				// Suppress harmless 'no-speech' or 'aborted' errors
+				if (e.error === "no-speech" || e.error === "aborted") return;
+				console.warn("Speech recognition error:", e.error);
+				if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+					this.isRunning = false;
+					this.notifyStatus(false, "Mic permission needed 🎙️");
+				}
+			};
+
+			rec.onend = () => {
+				// ALWAYS RESTART if supposed to be running (Always-on background listening)
+				if (this.isRunning) {
+					clearTimeout(this.restartTimer);
+					this.restartTimer = setTimeout(() => {
+						try {
+							rec.start();
+						} catch {
+							// Ignored if already started
+						}
+					}, 300);
+				}
+			};
+
+			this.recognition = rec;
+		} catch (e) {
+			console.warn("Speech recognition initialization failed:", e);
 		}
 	}
 
@@ -135,28 +148,20 @@ class SpideyVoiceAssistant {
 		try {
 			this.recognition.start();
 		} catch {
-			// Already started
+			// Already started or busy
 		}
 	}
 
 	public stop(): void {
 		this.isRunning = false;
 		this.isAwake = false;
+		clearTimeout(this.restartTimer);
 		if (this.recognition) {
 			try {
 				this.recognition.stop();
 			} catch {}
 		}
 		this.notifyStatus(false, "Voice inactive");
-	}
-
-	public toggle(): boolean {
-		if (this.isRunning) {
-			this.stop();
-			return false;
-		}
-		this.start();
-		return true;
 	}
 
 	public getIsRunning(): boolean {
@@ -207,8 +212,8 @@ class SpideyVoiceAssistant {
 		}
 		try {
 			window.speechSynthesis.cancel();
-			// Strip markdown symbols and keep punchy
-			const clean = text.replace(/[*#_~`]/g, "").slice(0, 220);
+			// Strip markdown symbols and keep clean
+			const clean = text.replace(/[*#_~`|]/g, "").slice(0, 220);
 			const utterance = new SpeechSynthesisUtterance(clean);
 			utterance.rate = 1.05;
 			utterance.pitch = 1.05;
