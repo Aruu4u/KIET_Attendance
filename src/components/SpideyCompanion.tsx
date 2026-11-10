@@ -125,7 +125,7 @@ export default function SpideyCompanion({
 				const reply = data.message || "Attendance stats ready! 🕸️";
 				setSpeech(reply);
 				setIsPeeping(true);
-				spideyVoice.speak(reply);
+				// Do not read out aloud via speech synthesis per user request
 			} catch {
 				setSpeech("Web-shooters jammed! Try again 🕸️");
 				setIsPeeping(true);
@@ -212,17 +212,19 @@ export default function SpideyCompanion({
 	}, [activeMeme]);
 
 	// ────────────────────────────────────────────────
-	//  TETHERED SWING PHYSICS (smooth pendulum with natural settling)
+	//  TETHERED SWING PHYSICS (Juicy rubber-band pendulum)
 	// ────────────────────────────────────────────────
 	const startSwingPhysics = () => {
-		const GRAVITY = 0.35;
-		const SPRING_K = 0.04;
-		const DAMPING = 0.99;
+		// Emil Kowalski craft: clear physical spring values for a juicy, rubbery bounce
+		const GRAVITY = 0.42;
+		const SPRING_K = 0.085;       // snappy rubber-band tension
+		const DAMPING = 0.985;        // gradual, satisfying energy dissipation
+		const RADIAL_DAMPING = 0.08;  // keeps rubber band bouncy along its axis
 
 		const loop = () => {
 			if (!isWebTetheredRef.current) return;
 
-			// User dragging — keep loop alive but skip physics
+			// User dragging — let user stretch the rubber band freely!
 			if (swingDragRef.current) {
 				swingAnimRef.current = requestAnimationFrame(loop);
 				return;
@@ -233,41 +235,41 @@ export default function SpideyCompanion({
 			let cx = posRef.current.x;
 			let cy = posRef.current.y;
 
-			// Gravity
+			// Constant gravity pulling down
 			vy += GRAVITY;
 
-			// Rope / rubber-band constraint
+			// Rubber band spring constraint
 			const spiderCX = cx + 36;
 			const spiderCY = cy + 18;
 			const dx = spiderCX - anchor.x;
 			const dy = spiderCY - anchor.y;
 			const dist = Math.hypot(dx, dy);
-			const ropeLen = ropeLengthRef.current;
+			const restLen = ropeLengthRef.current;
 
-			if (dist > ropeLen) {
-				const stretch = dist - ropeLen;
+			// Hooke's Law: F = -k * stretch (elastic tension pulling toward ceiling anchor)
+			if (dist > restLen) {
+				const stretch = dist - restLen;
 				const nx = dx / dist;
 				const ny = dy / dist;
 
-				// Smooth spring force toward anchor
+				// Elastic pull back to anchor
 				vx -= nx * stretch * SPRING_K;
 				vy -= ny * stretch * SPRING_K;
 
-				// Radial damping to prevent jitter/glitch
+				// Radial velocity dampening (elastic dissipation)
 				const radialVel = vx * nx + vy * ny;
 				if (radialVel > 0) {
-					vx -= nx * radialVel * 0.15;
-					vy -= ny * radialVel * 0.15;
+					vx -= nx * radialVel * RADIAL_DAMPING;
+					vy -= ny * radialVel * RADIAL_DAMPING;
 				}
 			}
 
-			// Smooth damping
+			// Smooth air resistance
 			vx *= DAMPING;
 			vy *= DAMPING;
 
-			// Deadband: when swing has practically settled, bring to a clean gentle rest
-			// This prevents sub-pixel vibrating / rendering jitter!
-			if (Math.abs(vx) < 0.05 && Math.abs(vy) < 0.05 && dist >= ropeLen - 2 && dist <= ropeLen + 2) {
+			// Deadband: cleanly rest only when both velocity AND stretch are tiny
+			if (Math.abs(vx) < 0.04 && Math.abs(vy) < 0.04 && Math.abs(dist - restLen) < 1.5) {
 				vx = 0;
 				vy = 0;
 			}
@@ -275,17 +277,17 @@ export default function SpideyCompanion({
 			cx += vx;
 			cy += vy;
 
-			// Wall bounds
+			// Screen boundaries with bounce
 			const clamped = clampPosition(cx, cy);
-			if (Math.abs(clamped.x - cx) > 0.5) { vx = -vx * 0.25; cx = clamped.x; }
-			if (Math.abs(clamped.y - cy) > 0.5) { vy = -vy * 0.15; cy = clamped.y; }
+			if (Math.abs(clamped.x - cx) > 0.5) { vx = -vx * 0.45; cx = clamped.x; }
+			if (Math.abs(clamped.y - cy) > 0.5) { vy = -vy * 0.35; cy = clamped.y; }
 
 			setPosSynced({ x: cx, y: cy });
 			swingVelRef.current = { vx, vy };
 
-			// Natural rotation based on rope angle + velocity
+			// Dynamic tilt based on rope angle and angular velocity
 			const ropeAngle = (Math.atan2(dx, dy) * 180) / Math.PI;
-			const targetRot = Math.max(-40, Math.min(40, -ropeAngle * 0.6 + vx * 1.5));
+			const targetRot = Math.max(-45, Math.min(45, -ropeAngle * 0.7 + vx * 2.2));
 			setRotation(targetRot);
 
 			swingAnimRef.current = requestAnimationFrame(loop);
@@ -331,15 +333,15 @@ export default function SpideyCompanion({
 				// Phase 2: Web stuck! Enter tethered mode
 				const spiderCenterX = startX + 36;
 				const spiderCenterY = startY + 18;
-				// Ensure minimum rope length of 140px so Spidey doesn't snap abruptly
+				// Set rest length to a comfortable hanging length
 				ropeLengthRef.current = Math.max(
-					140,
-					Math.hypot(spiderCenterX - anchor.x, spiderCenterY - anchor.y)
+					180,
+					Math.min(380, Math.hypot(spiderCenterX - anchor.x, spiderCenterY - anchor.y) * 0.85)
 				);
 
-				// Initial swing velocity (push sideways smoothly based on position)
+				// Tangential swing velocity impulse with upward spring lift
 				const dir = startX < window.innerWidth / 2 ? 1 : -1;
-				swingVelRef.current = { vx: dir * 5.5, vy: -1.0 };
+				swingVelRef.current = { vx: dir * 9.0, vy: -3.5 };
 
 				isWebTetheredRef.current = true;
 				setIsWebTethered(true);

@@ -83,7 +83,7 @@ export default function SpiderChat({
 			const data = await response.json();
 			const reply = data.message || "Canon event in progress... ask me again!";
 			setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-			spideyVoice.speak(reply);
+			// Do not read out text aloud per user request
 		} catch {
 			setMessages((prev) => [
 				...prev,
