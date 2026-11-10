@@ -212,12 +212,12 @@ export default function SpideyCompanion({
 	}, [activeMeme]);
 
 	// ────────────────────────────────────────────────
-	//  TETHERED SWING PHYSICS (rubber-band pendulum)
+	//  TETHERED SWING PHYSICS (smooth pendulum with natural settling)
 	// ────────────────────────────────────────────────
 	const startSwingPhysics = () => {
-		const GRAVITY = 0.38;
-		const SPRING_K = 0.055;
-		const DAMPING = 0.993;
+		const GRAVITY = 0.35;
+		const SPRING_K = 0.04;
+		const DAMPING = 0.99;
 
 		const loop = () => {
 			if (!isWebTetheredRef.current) return;
@@ -249,43 +249,44 @@ export default function SpideyCompanion({
 				const nx = dx / dist;
 				const ny = dy / dist;
 
-				// Spring force toward anchor
+				// Smooth spring force toward anchor
 				vx -= nx * stretch * SPRING_K;
 				vy -= ny * stretch * SPRING_K;
 
-				// Extra radial damping to keep it smooth
+				// Radial damping to prevent jitter/glitch
 				const radialVel = vx * nx + vy * ny;
 				if (radialVel > 0) {
-					vx -= nx * radialVel * 0.12;
-					vy -= ny * radialVel * 0.12;
-				}
-
-				// Hard constraint: max 1.5× rope stretch
-				if (dist > ropeLen * 1.5) {
-					const scale = (ropeLen * 1.4) / dist;
-					cx = anchor.x + dx * scale - 36;
-					cy = anchor.y + dy * scale - 18;
+					vx -= nx * radialVel * 0.15;
+					vy -= ny * radialVel * 0.15;
 				}
 			}
 
-			// Damping
+			// Smooth damping
 			vx *= DAMPING;
 			vy *= DAMPING;
+
+			// Deadband: when swing has practically settled, bring to a clean gentle rest
+			// This prevents sub-pixel vibrating / rendering jitter!
+			if (Math.abs(vx) < 0.05 && Math.abs(vy) < 0.05 && dist >= ropeLen - 2 && dist <= ropeLen + 2) {
+				vx = 0;
+				vy = 0;
+			}
 
 			cx += vx;
 			cy += vy;
 
-			// Wall bounce
+			// Wall bounds
 			const clamped = clampPosition(cx, cy);
-			if (Math.round(clamped.x) !== Math.round(cx)) { vx = -vx * 0.3; cx = clamped.x; }
-			if (Math.round(clamped.y) !== Math.round(cy)) { vy = -vy * 0.15; cy = clamped.y; }
+			if (Math.abs(clamped.x - cx) > 0.5) { vx = -vx * 0.25; cx = clamped.x; }
+			if (Math.abs(clamped.y - cy) > 0.5) { vy = -vy * 0.15; cy = clamped.y; }
 
 			setPosSynced({ x: cx, y: cy });
 			swingVelRef.current = { vx, vy };
 
-			// Rotation from velocity
-			const angle = (Math.atan2(vx, -vy) * 180) / Math.PI;
-			setRotation(Math.max(-45, Math.min(45, angle * 0.5)));
+			// Natural rotation based on rope angle + velocity
+			const ropeAngle = (Math.atan2(dx, dy) * 180) / Math.PI;
+			const targetRot = Math.max(-40, Math.min(40, -ropeAngle * 0.6 + vx * 1.5));
+			setRotation(targetRot);
 
 			swingAnimRef.current = requestAnimationFrame(loop);
 		};
@@ -330,14 +331,15 @@ export default function SpideyCompanion({
 				// Phase 2: Web stuck! Enter tethered mode
 				const spiderCenterX = startX + 36;
 				const spiderCenterY = startY + 18;
-				ropeLengthRef.current = Math.hypot(
-					spiderCenterX - anchor.x,
-					spiderCenterY - anchor.y,
+				// Ensure minimum rope length of 140px so Spidey doesn't snap abruptly
+				ropeLengthRef.current = Math.max(
+					140,
+					Math.hypot(spiderCenterX - anchor.x, spiderCenterY - anchor.y)
 				);
 
-				// Initial swing velocity (push sideways based on position)
+				// Initial swing velocity (push sideways smoothly based on position)
 				const dir = startX < window.innerWidth / 2 ? 1 : -1;
-				swingVelRef.current = { vx: dir * 7, vy: -2 };
+				swingVelRef.current = { vx: dir * 5.5, vy: -1.0 };
 
 				isWebTetheredRef.current = true;
 				setIsWebTethered(true);
@@ -711,14 +713,14 @@ export default function SpideyCompanion({
 			{/* Spidey Interactive Avatar */}
 			<div
 				style={{
-					left: `${pos.x}px`,
-					top: `${pos.y}px`,
-					transform: `rotate(${rotation}deg)`,
+					transform: `translate3d(${pos.x}px, ${pos.y}px, 0) rotate(${rotation}deg)`,
 					transformOrigin: "36px 18px",
-					transition: isDragging || isWebTethered ? "none" : "all 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+					transition: isDragging || isWebTethered ? "none" : "transform 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
 					touchAction: "none",
 					userSelect: "none",
-					willChange: "left, top, transform",
+					willChange: "transform",
+					left: 0,
+					top: 0,
 				}}
 				onMouseDown={(e) => {
 					e.preventDefault();
