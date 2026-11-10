@@ -92,10 +92,14 @@ export default function SpideyCompanion({
 		if (fallAnimRef.current) { cancelAnimationFrame(fallAnimRef.current); fallAnimRef.current = null; }
 	};
 
-	// Initialize posRef with proper bottom position on mount & cleanup on unmount
+	// Initialize posRef with bottom position & auto-start voice assistant on mount
 	useEffect(() => {
 		const initial = clampPosition(32, window.innerHeight - SPRITE_SIZE - 20);
 		setPosSynced(initial);
+
+		if (spideyVoice.isSupported() && !spideyVoice.getIsRunning()) {
+			spideyVoice.start();
+		}
 
 		return () => {
 			cancelAllAnimations();

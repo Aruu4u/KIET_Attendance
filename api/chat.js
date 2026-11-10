@@ -220,7 +220,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { messages = [], attendanceData, shortAnswer = false } = req.body || {};
+  const { messages = [], attendanceData, scheduleData = [], shortAnswer = false } = req.body || {};
 
   // Support both direct attendance data and nested data wrapper
   const effectiveData = attendanceData?.attendanceCourseComponentInfoList
@@ -253,7 +253,7 @@ export default async function handler(req, res) {
     const overallPct = totalC > 0 ? ((totalP / totalC) * 100).toFixed(1) : '0.0';
     attendanceContext = [
       `STUDENT INFO (LATEST SEMESTER ONLY):`,
-      `Student Name: ${effectiveData.fullName || 'Arsal Masood'}`,
+      `Student Name: Arsal`,
       `Roll Number: ${effectiveData.registrationNumber || '202401100200087'}`,
       `Degree & Branch: ${effectiveData.degreeName || 'B.Tech'} - ${effectiveData.branchShortName || 'CSE'}`,
       `Section: ${effectiveData.sectionName || 'B'} | Current Semester: ${effectiveData.semesterName || '5'}`,
@@ -294,10 +294,21 @@ CRITICAL RULES:
 3. 75% EXAM ELIGIBILITY:
    - Warn if any subject drops below 75% (risk of being debarred from End Sem Exams!)
    - Labs are tracked separately from theory.
-4. TONE: GenZ Hinglish energy — 'fr fr', 'no cap', 'bro is cooking', 'aura +1000', 'moye moye', 'lock in', 'gyatt', 'sigma grindset'.
+4. MODE OF ANSWERING (CRITICAL):
    ${shortAnswer
-     ? '- VOICE MODE: Max 2 punchy sentences with the exact percentage!'
-     : '- Use bullet points or neat tables for easy reading.'}
+     ? `• AVATAR FLOATING THINK-BUBBLE MODE: 
+        - Provide ONLY the direct, crisp, relevant answer in 1-2 short sentences max!
+        - ZERO filler, no long introductory text, no tables. Directly give the exact count/answer.`
+     : `• CHATBOX DIALOG MODE:
+        - Provide a full, detailed, comprehensive breakdown with neat markdown tables, subject-by-subject analysis, and eligibility guidance.`}
+5. HANDLING MISSED CLASSES / DATE RANGE QUERIES:
+   - When asked "what classes did I miss from [Date A] to [Date B]":
+     a. Determine the days of the week falling between those dates (e.g. 28th Oct is Tuesday, 29th Wednesday, 30th Thursday, 31st Friday, etc.).
+     b. Match each day against the EXACT DAYWISE WEEKLY TIMETABLE below.
+     c. List every subject and lecture held on those days with their period count.
+     d. Compute total periods missed using the calculator tool.
+     e. If specific absent dates are checked against total recorded absents (Total - Present = ${effectiveData ? 'Total Classes - Present Classes' : 'absent count'}), clearly correlate how many classes were held on those days and the attendance impact!
+     f. NEVER say "Let me check the exact dates and classes for that period" without actually listing them! You already have the entire schedule right here in your prompt! Give the answer directly!
 
 TIMETABLE KEY (Periods per day):
 ${JSON.stringify(dayPeriodMap, null, 2)}
