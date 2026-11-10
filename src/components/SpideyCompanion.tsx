@@ -30,28 +30,41 @@ export default function SpideyCompanion({
 	const SPRITE_SIZE = 76;
 	const TOP_CEILING_ZONE = 75;
 
-	// Visual state
+	// ── Visual state ──
 	const [pos, setPos] = useState<{ x: number; y: number }>({ x: 30, y: 320 });
-	const [isSwingingArc, setIsSwingingArc] = useState<boolean>(false);
 	const [isDragging, setIsDragging] = useState<boolean>(false);
 	const [rotation, setRotation] = useState<number>(0);
 	const [poseState, setPoseState] = useState<"idle" | "swing" | "top_hang">("idle");
 
+	// ── Web state ──
 	const [ceilingAnchor, setCeilingAnchor] = useState<{ x: number; y: number } | null>(null);
 	const [webShootProgress, setWebShootProgress] = useState<number>(0);
+	const [isWebTethered, setIsWebTethered] = useState<boolean>(false);
 
-	// Refs for instantaneous gesture tracking without lag or state closures
+	// ── Refs for instantaneous gesture tracking ──
 	const posRef = useRef({ x: 30, y: 320 });
 	const isDraggingRef = useRef(false);
 	const dragStartClientRef = useRef({ x: 0, y: 0 });
 	const dragStartPosRef = useRef({ x: 0, y: 0 });
 	const dragDistanceRef = useRef(0);
+
+	// Animation frame refs
 	const swingAnimRef = useRef<number | null>(null);
 	const shootAnimRef = useRef<number | null>(null);
+	const fallAnimRef = useRef<number | null>(null);
 
 	// Double-tap & Single-tap tracking
 	const lastTapTimeRef = useRef<number>(0);
 	const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	// ── Tethered swing physics refs ──
+	const isWebTetheredRef = useRef(false);
+	const swingVelRef = useRef({ vx: 0, vy: 0 });
+	const ropeLengthRef = useRef(200);
+	const anchorRef = useRef({ x: 0, y: 0 });
+	const swingDragRef = useRef(false);
+	const lastDragVelRef = useRef({ vx: 0, vy: 0 });
+	const prevDragPosRef = useRef({ x: 0, y: 0, t: 0 });
 
 	const clampPosition = (x: number, y: number) => {
 		const W = typeof window !== "undefined" ? window.innerWidth : 400;
@@ -67,16 +80,22 @@ export default function SpideyCompanion({
 		setPos(p);
 	};
 
-	// Clean up timers & frames on unmount
+	// Cancel all animation frames helper
+	const cancelAllAnimations = () => {
+		if (swingAnimRef.current) { cancelAnimationFrame(swingAnimRef.current); swingAnimRef.current = null; }
+		if (shootAnimRef.current) { cancelAnimationFrame(shootAnimRef.current); shootAnimRef.current = null; }
+		if (fallAnimRef.current) { cancelAnimationFrame(fallAnimRef.current); fallAnimRef.current = null; }
+	};
+
+	// Clean up on unmount
 	useEffect(() => {
 		return () => {
-			if (swingAnimRef.current) cancelAnimationFrame(swingAnimRef.current);
-			if (shootAnimRef.current) cancelAnimationFrame(shootAnimRef.current);
+			cancelAllAnimations();
 			if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
 		};
 	}, []);
 
-	// Background "Hey Spidey" voice activation — always listening
+	// ── Background "Hey Spidey" voice activation — always listening ──
 	useEffect(() => {
 		const unsubStatus = spideyVoice.onStatus((listening, msg) => {
 			if (!isChatOpen && listening) {
@@ -86,7 +105,7 @@ export default function SpideyCompanion({
 		});
 
 		const handleVoiceQuery = async (query: string) => {
-			if (isChatOpen) return; // If chat window is open, SpiderChat handles it
+			if (isChatOpen) return;
 
 			setSpeech("Thinking... 🕷️💭");
 			setIsPeeping(true);
@@ -121,7 +140,7 @@ export default function SpideyCompanion({
 		};
 	}, [isChatOpen, attendanceData]);
 
-	// Attendance evaluation notifications
+	// ── Attendance evaluation notifications ──
 	useEffect(() => {
 		if (!attendanceData) return;
 		try {
@@ -192,98 +211,195 @@ export default function SpideyCompanion({
 		}
 	}, [activeMeme]);
 
-	// Double-Tap Web Swing Animation
-	const triggerWebSwing = (startX: number, startY: number) => {
-		if (swingAnimRef.current) cancelAnimationFrame(swingAnimRef.current);
-		if (shootAnimRef.current) cancelAnimationFrame(shootAnimRef.current);
+	// ────────────────────────────────────────────────
+	//  TETHERED SWING PHYSICS (rubber-band pendulum)
+	// ────────────────────────────────────────────────
+	const startSwingPhysics = () => {
+		const GRAVITY = 0.38;
+		const SPRING_K = 0.055;
+		const DAMPING = 0.993;
 
-		setIsSwingingArc(true);
-		setPoseState("swing");
-		playSound("web_swing", 0.7);
-		setSpeech("SWIIIIIING! 🕸️💨");
-		setIsPeeping(true);
+		const loop = () => {
+			if (!isWebTetheredRef.current) return;
 
-		const anchorX = Math.max(35, Math.min(window.innerWidth - 35, startX + 36));
-		const anchor = { x: anchorX, y: 0 };
-		setCeilingAnchor(anchor);
-		setWebShootProgress(0.1);
-
-		const shotStart = performance.now();
-		const animateShot = (now: number) => {
-			const progress = Math.min(1, (now - shotStart) / 100);
-			setWebShootProgress(progress);
-			if (progress < 1) {
-				shootAnimRef.current = requestAnimationFrame(animateShot);
-			}
-		};
-		shootAnimRef.current = requestAnimationFrame(animateShot);
-
-		const swingDir = startX < window.innerWidth / 2 ? 1 : -1;
-		let vx = swingDir * 9.5;
-		let vy = -3.2;
-		let cx = startX;
-		let cy = startY;
-		let frame = 0;
-		const maxFrames = 62;
-		const restRope = Math.max(105, Math.hypot(startX + 36 - anchorX, startY + 18));
-
-		const swingLoop = () => {
-			frame++;
-			if (frame < 42) {
-				const d = Math.hypot(cx + 36 - anchor.x, cy + 18 - anchor.y);
-				if (d > restRope) {
-					const tension = (d - restRope) * 0.045;
-					vx -= ((cx + 36 - anchor.x) / d) * tension;
-					vy -= ((cy + 18 - anchor.y) / d) * tension;
-				}
-				vy += 0.32;
-			} else {
-				if (frame === 42) {
-					setCeilingAnchor(null);
-					setWebShootProgress(0);
-				}
-				vy += 0.42;
+			// User dragging — keep loop alive but skip physics
+			if (swingDragRef.current) {
+				swingAnimRef.current = requestAnimationFrame(loop);
+				return;
 			}
 
-			vx *= 0.965;
-			vy *= 0.965;
+			const anchor = anchorRef.current;
+			let { vx, vy } = swingVelRef.current;
+			let cx = posRef.current.x;
+			let cy = posRef.current.y;
+
+			// Gravity
+			vy += GRAVITY;
+
+			// Rope / rubber-band constraint
+			const spiderCX = cx + 36;
+			const spiderCY = cy + 18;
+			const dx = spiderCX - anchor.x;
+			const dy = spiderCY - anchor.y;
+			const dist = Math.hypot(dx, dy);
+			const ropeLen = ropeLengthRef.current;
+
+			if (dist > ropeLen) {
+				const stretch = dist - ropeLen;
+				const nx = dx / dist;
+				const ny = dy / dist;
+
+				// Spring force toward anchor
+				vx -= nx * stretch * SPRING_K;
+				vy -= ny * stretch * SPRING_K;
+
+				// Extra radial damping to keep it smooth
+				const radialVel = vx * nx + vy * ny;
+				if (radialVel > 0) {
+					vx -= nx * radialVel * 0.12;
+					vy -= ny * radialVel * 0.12;
+				}
+
+				// Hard constraint: max 1.5× rope stretch
+				if (dist > ropeLen * 1.5) {
+					const scale = (ropeLen * 1.4) / dist;
+					cx = anchor.x + dx * scale - 36;
+					cy = anchor.y + dy * scale - 18;
+				}
+			}
+
+			// Damping
+			vx *= DAMPING;
+			vy *= DAMPING;
+
 			cx += vx;
 			cy += vy;
 
-			const b = clampPosition(cx, cy);
-			if (b.x !== cx) {
-				vx = -vx * 0.25;
-				cx = b.x;
-			}
-			if (b.y !== cy) {
-				vy = -vy * 0.15;
-				cy = b.y;
-			}
+			// Wall bounce
+			const clamped = clampPosition(cx, cy);
+			if (Math.round(clamped.x) !== Math.round(cx)) { vx = -vx * 0.3; cx = clamped.x; }
+			if (Math.round(clamped.y) !== Math.round(cy)) { vy = -vy * 0.15; cy = clamped.y; }
 
 			setPosSynced({ x: cx, y: cy });
-			const angle = (Math.atan2(vx, vy) * 180) / Math.PI;
-			setRotation(Math.max(-40, Math.min(40, (angle - 90) * 0.4)));
+			swingVelRef.current = { vx, vy };
 
-			if (
-				frame >= maxFrames ||
-				(frame > 34 && Math.abs(vx) < 0.6 && Math.abs(vy) < 0.9)
-			) {
-				swingAnimRef.current = null;
-				setIsSwingingArc(false);
-				setCeilingAnchor(null);
-				setWebShootProgress(0);
-				setRotation(0);
-				setPoseState("idle");
-				setSpeech("Smooth landing! 🍕🕸️");
-				setIsPeeping(true);
-				return;
-			}
-			swingAnimRef.current = requestAnimationFrame(swingLoop);
+			// Rotation from velocity
+			const angle = (Math.atan2(vx, -vy) * 180) / Math.PI;
+			setRotation(Math.max(-45, Math.min(45, angle * 0.5)));
+
+			swingAnimRef.current = requestAnimationFrame(loop);
 		};
-		swingAnimRef.current = requestAnimationFrame(swingLoop);
+
+		swingAnimRef.current = requestAnimationFrame(loop);
 	};
 
-	// Immediate chatbot open on single tap (with sound)
+	// ────────────────────────────────────────────────
+	//  DOUBLE-TAP: Shoot web to center-top ceiling
+	// ────────────────────────────────────────────────
+	const triggerWebSwing = (startX: number, startY: number) => {
+		cancelAllAnimations();
+
+		// Detach any existing tether
+		isWebTetheredRef.current = false;
+		setIsWebTethered(false);
+		swingDragRef.current = false;
+
+		setPoseState("swing");
+		playSound("web_swing", 0.7);
+		setSpeech("THWIP! 🕸️💨");
+		setIsPeeping(true);
+
+		// Anchor at CENTER TOP of the viewport
+		const anchorX = Math.round(window.innerWidth / 2);
+		const anchor = { x: anchorX, y: 0 };
+		anchorRef.current = anchor;
+		setCeilingAnchor(anchor);
+		setWebShootProgress(0);
+
+		// Phase 1: Animate web shooting from hand to ceiling (150ms)
+		const shotStart = performance.now();
+		const SHOT_DURATION = 150;
+
+		const animateShot = (now: number) => {
+			const progress = Math.min(1, (now - shotStart) / SHOT_DURATION);
+			setWebShootProgress(progress);
+			if (progress < 1) {
+				shootAnimRef.current = requestAnimationFrame(animateShot);
+			} else {
+				shootAnimRef.current = null;
+				// Phase 2: Web stuck! Enter tethered mode
+				const spiderCenterX = startX + 36;
+				const spiderCenterY = startY + 18;
+				ropeLengthRef.current = Math.hypot(
+					spiderCenterX - anchor.x,
+					spiderCenterY - anchor.y,
+				);
+
+				// Initial swing velocity (push sideways based on position)
+				const dir = startX < window.innerWidth / 2 ? 1 : -1;
+				swingVelRef.current = { vx: dir * 7, vy: -2 };
+
+				isWebTetheredRef.current = true;
+				setIsWebTethered(true);
+				setSpeech("Swinging! Drag me or tap to release 🕸️🕷️");
+				setIsPeeping(true);
+
+				startSwingPhysics();
+			}
+		};
+		shootAnimRef.current = requestAnimationFrame(animateShot);
+	};
+
+	// ────────────────────────────────────────────────
+	//  DETACH WEB: Tap while tethered → release & fall
+	// ────────────────────────────────────────────────
+	const detachWeb = () => {
+		isWebTetheredRef.current = false;
+		setIsWebTethered(false);
+		swingDragRef.current = false;
+		setCeilingAnchor(null);
+		setWebShootProgress(0);
+		cancelAllAnimations();
+
+		setSpeech("Web released! 🕷️✨");
+		setIsPeeping(true);
+		setPoseState("idle");
+
+		// Fall with current velocity
+		let { vx: fvx, vy: fvy } = swingVelRef.current;
+		let cx = posRef.current.x;
+		let cy = posRef.current.y;
+
+		const fallLoop = () => {
+			fvy += 0.5;
+			fvx *= 0.97;
+			fvy *= 0.97;
+			cx += fvx;
+			cy += fvy;
+
+			const clamped = clampPosition(cx, cy);
+			if (Math.round(clamped.x) !== Math.round(cx)) { fvx = -fvx * 0.2; cx = clamped.x; }
+			if (Math.round(clamped.y) !== Math.round(cy)) { fvy = -fvy * 0.2; cy = clamped.y; }
+
+			setPosSynced({ x: cx, y: cy });
+
+			// Settled?
+			if (Math.abs(fvx) < 0.3 && Math.abs(fvy) < 0.3) {
+				setRotation(0);
+				fallAnimRef.current = null;
+				return;
+			}
+
+			const angle = (Math.atan2(fvx, -fvy) * 180) / Math.PI;
+			setRotation(Math.max(-30, Math.min(30, angle * 0.3)));
+
+			fallAnimRef.current = requestAnimationFrame(fallLoop);
+		};
+
+		fallAnimRef.current = requestAnimationFrame(fallLoop);
+	};
+
+	// ── Single tap: Open chatbot ──
 	const triggerChat = () => {
 		if (!attendanceData) {
 			setSpeech("Login first bro, then we chat! 🔒🕸️");
@@ -296,30 +412,109 @@ export default function SpideyCompanion({
 		}
 	};
 
-	// Drag & Tap Interaction Handlers
+	// ────────────────────────────────────────────────
+	//  POINTER HANDLER: all gestures (normal + tethered)
+	// ────────────────────────────────────────────────
 	const handlePointerDown = (clientX: number, clientY: number) => {
-		// First, start passive voice listener if not already initialized
+		// Start voice listener on first interaction
 		if (spideyVoice.isSupported() && !spideyVoice.getIsRunning()) {
 			spideyVoice.start();
 		}
 
-		if (isSwingingArc) return;
+		// ═══════════════════════════════════════════
+		// MODE A: TETHERED (web attached to ceiling)
+		// ═══════════════════════════════════════════
+		if (isWebTetheredRef.current) {
+			isDraggingRef.current = true;
+			setIsDragging(true);
+			swingDragRef.current = true;
+			dragDistanceRef.current = 0;
+			dragStartClientRef.current = { x: clientX, y: clientY };
+			dragStartPosRef.current = { ...posRef.current };
+			prevDragPosRef.current = { x: posRef.current.x, y: posRef.current.y, t: performance.now() };
+			lastDragVelRef.current = { vx: 0, vy: 0 };
 
+			const onMove = (mx: number, my: number) => {
+				if (!isDraggingRef.current) return;
+				const dx = mx - dragStartClientRef.current.x;
+				const dy = my - dragStartClientRef.current.y;
+				dragDistanceRef.current = Math.hypot(dx, dy);
+
+				if (dragDistanceRef.current > 4) {
+					const targetX = dragStartPosRef.current.x + dx;
+					const targetY = dragStartPosRef.current.y + dy;
+					const clamped = clampPosition(targetX, targetY);
+					setPosSynced(clamped);
+
+					// Track velocity for release fling
+					const now = performance.now();
+					const dt = now - prevDragPosRef.current.t;
+					if (dt > 0) {
+						lastDragVelRef.current = {
+							vx: ((clamped.x - prevDragPosRef.current.x) / Math.max(dt, 8)) * 16,
+							vy: ((clamped.y - prevDragPosRef.current.y) / Math.max(dt, 8)) * 16,
+						};
+						prevDragPosRef.current = { x: clamped.x, y: clamped.y, t: now };
+					}
+				}
+			};
+
+			const onUp = () => {
+				isDraggingRef.current = false;
+				setIsDragging(false);
+				swingDragRef.current = false;
+
+				window.removeEventListener("mousemove", onMouseMove);
+				window.removeEventListener("mouseup", onMouseUp);
+				window.removeEventListener("touchmove", onTouchMove);
+				window.removeEventListener("touchend", onTouchEnd);
+				window.removeEventListener("touchcancel", onTouchEnd);
+
+				if (dragDistanceRef.current <= 6) {
+					// TAP while tethered → detach web
+					detachWeb();
+				} else {
+					// DRAG release → fling with drag velocity
+					const { vx, vy } = lastDragVelRef.current;
+					swingVelRef.current = {
+						vx: Math.max(-18, Math.min(18, vx)),
+						vy: Math.max(-18, Math.min(18, vy)),
+					};
+					// Physics loop is running, it picks up the velocity
+				}
+			};
+
+			const onMouseMove = (e: MouseEvent) => onMove(e.clientX, e.clientY);
+			const onMouseUp = () => onUp();
+			const onTouchMove = (e: TouchEvent) => {
+				if (e.touches[0]) onMove(e.touches[0].clientX, e.touches[0].clientY);
+			};
+			const onTouchEnd = () => onUp();
+
+			window.addEventListener("mousemove", onMouseMove);
+			window.addEventListener("mouseup", onMouseUp);
+			window.addEventListener("touchmove", onTouchMove, { passive: false });
+			window.addEventListener("touchend", onTouchEnd);
+			window.addEventListener("touchcancel", onTouchEnd);
+			return;
+		}
+
+		// ═══════════════════════════════════════════
+		// MODE B: NORMAL (idle / not tethered)
+		// ═══════════════════════════════════════════
 		isDraggingRef.current = true;
 		setIsDragging(true);
 		dragDistanceRef.current = 0;
 		dragStartClientRef.current = { x: clientX, y: clientY };
 		dragStartPosRef.current = { ...posRef.current };
 
-		const onMove = (moveClientX: number, moveClientY: number) => {
+		const onMove = (mx: number, my: number) => {
 			if (!isDraggingRef.current) return;
-			const dx = moveClientX - dragStartClientRef.current.x;
-			const dy = moveClientY - dragStartClientRef.current.y;
-			const moved = Math.hypot(dx, dy);
-			dragDistanceRef.current = moved;
+			const dx = mx - dragStartClientRef.current.x;
+			const dy = my - dragStartClientRef.current.y;
+			dragDistanceRef.current = Math.hypot(dx, dy);
 
-			// Active dragging with ZERO latency
-			if (moved > 6) {
+			if (dragDistanceRef.current > 6) {
 				const targetX = dragStartPosRef.current.x + dx;
 				const targetY = dragStartPosRef.current.y + dy;
 				const clamped = clampPosition(targetX, targetY);
@@ -339,7 +534,7 @@ export default function SpideyCompanion({
 
 			const moved = dragDistanceRef.current;
 
-			// 1. DRAG FINISHED (> 6px movement)
+			// 1. DRAG FINISHED (> 6px)
 			if (moved > 6) {
 				const dx = upClientX - dragStartClientRef.current.x;
 				const dy = upClientY - dragStartClientRef.current.y;
@@ -351,7 +546,7 @@ export default function SpideyCompanion({
 					setPosSynced({ x: clamped.x, y: 16 });
 					setPoseState("top_hang");
 					setRotation(0);
-					setSpeech("Chillin' upside down! 🧗‍♂️🕸️");
+					setSpeech("Chillin' upside down on the ceiling! 🕸️");
 					setIsPeeping(true);
 				} else {
 					setPosSynced(clamped);
@@ -361,12 +556,12 @@ export default function SpideyCompanion({
 				return;
 			}
 
-			// 2. TAP DETECTED (<= 6px movement)
+			// 2. TAP DETECTED (≤ 6px movement)
 			const now = Date.now();
 			const timeSinceLastTap = now - lastTapTimeRef.current;
 
 			if (timeSinceLastTap < 280 && timeSinceLastTap > 0) {
-				// DOUBLE TAP -> TRIGGER WEB SWING!
+				// DOUBLE TAP → SHOOT WEB & SWING!
 				if (singleTapTimerRef.current) {
 					clearTimeout(singleTapTimerRef.current);
 					singleTapTimerRef.current = null;
@@ -374,7 +569,7 @@ export default function SpideyCompanion({
 				lastTapTimeRef.current = 0;
 				triggerWebSwing(posRef.current.x, posRef.current.y);
 			} else {
-				// SINGLE TAP -> OPEN CHAT (after short 220ms confirmation)
+				// SINGLE TAP → OPEN CHAT (after 220ms confirmation)
 				lastTapTimeRef.current = now;
 				if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
 				singleTapTimerRef.current = setTimeout(() => {
@@ -405,25 +600,30 @@ export default function SpideyCompanion({
 		window.addEventListener("touchcancel", onTouchEnd);
 	};
 
-	// Hand anchor for web rendering
+	// ── Web line rendering calculations ──
 	const handX = pos.x + 36;
 	const handY = pos.y + 18;
 	const webTip = ceilingAnchor
-		? {
-				x: handX + (ceilingAnchor.x - handX) * webShootProgress,
-				y: handY + (ceilingAnchor.y - handY) * webShootProgress,
-		  }
+		? isWebTethered
+			? { x: ceilingAnchor.x, y: ceilingAnchor.y }
+			: {
+					x: handX + (ceilingAnchor.x - handX) * webShootProgress,
+					y: handY + (ceilingAnchor.y - handY) * webShootProgress,
+				}
 		: null;
+
+	const showWebLine = ceilingAnchor !== null && webTip !== null;
 
 	return (
 		<>
-			{/* Web shooter line during swing */}
-			{isSwingingArc && ceilingAnchor && webTip && (
+			{/* Web shooter line (during shooting + tethered swing) */}
+			{showWebLine && (
 				<svg
 					className="fixed inset-0 pointer-events-none z-40 w-full h-full"
 					style={{ filter: "drop-shadow(0 0 3px rgba(255,255,255,0.9))" }}
 				>
-					{webShootProgress >= 0.8 && (
+					{/* Web splat at ceiling anchor */}
+					{(webShootProgress >= 0.8 || isWebTethered) && (
 						<g>
 							<circle
 								cx={ceilingAnchor.x}
@@ -453,6 +653,7 @@ export default function SpideyCompanion({
 							/>
 						</g>
 					)}
+					{/* Web line from hand to anchor/tip */}
 					<line
 						x1={handX}
 						y1={handY}
@@ -520,8 +721,7 @@ export default function SpideyCompanion({
 					top: `${pos.y}px`,
 					transform: `rotate(${rotation}deg)`,
 					transformOrigin: "36px 18px",
-					// Instantaneous response while dragging or swinging (no CSS transition lag)
-					transition: isDragging || isSwingingArc ? "none" : "all 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+					transition: isDragging || isWebTethered ? "none" : "all 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
 					touchAction: "none",
 					userSelect: "none",
 					willChange: "left, top, transform",
