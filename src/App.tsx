@@ -123,7 +123,7 @@ function App() {
 							</span>
 						</h1>
 						<p className="text-[10px] font-black text-gray-500 uppercase tracking-widest hidden sm:block">
-							KIET CyberVidya &bull; Pixel Game Edition
+							KIET CyberVidya Edition
 						</p>
 					</div>
 				</div>

@@ -18,10 +18,10 @@ body {
   color: #0f172a;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow-x: hidden;
-  /* City background positioned lower down so skyline anchors nicely at the bottom */
+  /* City background pushed significantly lower so rooftops stay at the bottom and sky fills the backdrop */
   background-image: url('/spidey/city_bg.png');
   background-size: cover;
-  background-position: center 85%;
+  background-position: center 100%;
   background-repeat: no-repeat;
   background-attachment: fixed;
 }

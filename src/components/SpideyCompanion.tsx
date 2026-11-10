@@ -31,7 +31,12 @@ export default function SpideyCompanion({
 	const TOP_CEILING_ZONE = 75;
 
 	// ── Visual state ──
-	const [pos, setPos] = useState<{ x: number; y: number }>({ x: 30, y: 320 });
+	// Default base position placed near the bottom edge
+	const [pos, setPos] = useState<{ x: number; y: number }>(() => {
+		const W = typeof window !== "undefined" ? window.innerWidth : 400;
+		const H = typeof window !== "undefined" ? window.innerHeight : 800;
+		return { x: Math.max(20, Math.min(W - 96, 32)), y: Math.max(100, H - 96) };
+	});
 	const [isDragging, setIsDragging] = useState<boolean>(false);
 	const [rotation, setRotation] = useState<number>(0);
 	const [poseState, setPoseState] = useState<"idle" | "swing" | "top_hang">("idle");
@@ -42,7 +47,7 @@ export default function SpideyCompanion({
 	const [isWebTethered, setIsWebTethered] = useState<boolean>(false);
 
 	// ── Refs for instantaneous gesture tracking ──
-	const posRef = useRef({ x: 30, y: 320 });
+	const posRef = useRef({ x: 32, y: 700 });
 	const isDraggingRef = useRef(false);
 	const dragStartClientRef = useRef({ x: 0, y: 0 });
 	const dragStartPosRef = useRef({ x: 0, y: 0 });
@@ -70,8 +75,8 @@ export default function SpideyCompanion({
 		const W = typeof window !== "undefined" ? window.innerWidth : 400;
 		const H = typeof window !== "undefined" ? window.innerHeight : 800;
 		return {
-			x: Math.max(14, Math.min(W - SPRITE_SIZE - 14, x)),
-			y: Math.max(16, Math.min(H - SPRITE_SIZE - 95, y)),
+			x: Math.max(12, Math.min(W - SPRITE_SIZE - 12, x)),
+			y: Math.max(16, Math.min(H - SPRITE_SIZE - 12, y)),
 		};
 	};
 
@@ -87,8 +92,11 @@ export default function SpideyCompanion({
 		if (fallAnimRef.current) { cancelAnimationFrame(fallAnimRef.current); fallAnimRef.current = null; }
 	};
 
-	// Clean up on unmount
+	// Initialize posRef with proper bottom position on mount & cleanup on unmount
 	useEffect(() => {
+		const initial = clampPosition(32, window.innerHeight - SPRITE_SIZE - 20);
+		setPosSynced(initial);
+
 		return () => {
 			cancelAllAnimations();
 			if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
