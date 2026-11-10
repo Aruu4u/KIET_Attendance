@@ -1,6 +1,217 @@
 // SpiderBot AI — SpiderMan GenZ Attendance Advisor & Attendance Simulator
 // Groq API-powered chatbot with LIVE dynamic timetable + LIVE attendance simulation
+// Tools: calculator, calendar/date, Tavily web search (general queries only)
 
+// ─────────────────────────────────────────────────
+//  EXACT WEEKLY TIMETABLE (Section B, Sem 5, CSE)
+// ─────────────────────────────────────────────────
+const WEEKLY_SCHEDULE = {
+  Monday: [
+    { subject: "PE (Physical Education)", code: "PE", periods: 2, type: "Theory", time: "09:10–10:50" },
+    { subject: "TOC (PM)-B", code: "CS313", periods: 1, type: "Theory", time: "10:50–11:40" },
+    { subject: "DL&GA Lab (HC/MAITREE/AMK)", code: "CS312-LAB", periods: 1, type: "Lab", time: "11:40–12:30" },
+    { subject: "SE Lab (NS/PJ/PV) [E-506]", code: "CS311L-LAB", periods: 2, type: "Lab", time: "14:20–16:00" },
+    { subject: "TOC (PM)-B", code: "CS313", periods: 1, type: "Theory", time: "16:00–16:50" },
+  ],
+  Tuesday: [
+    { subject: "SE (NS)(CS311L)-B", code: "CS311L", periods: 1, type: "Theory", time: "09:10–10:00" },
+    { subject: "TOC (PM)-B", code: "CS313", periods: 1, type: "Theory", time: "10:00–10:50" },
+    { subject: "PE (Physical Education)", code: "PE", periods: 2, type: "Theory", time: "10:50–12:30" },
+    { subject: "SSFE (SK)(HS204L)-B", code: "HS204L", periods: 1, type: "Theory", time: "12:30–13:20" },
+    { subject: "ADBMS (SDC)-B", code: "IT401B", periods: 1, type: "Theory", time: "14:20–15:10" },
+    { subject: "APT (MG)-B (HS203L)", code: "HS203L", periods: 2, type: "Theory", time: "15:10–16:50" },
+  ],
+  Wednesday: [
+    { subject: "PE (Physical Education)", code: "PE", periods: 2, type: "Theory", time: "09:10–10:50" },
+    { subject: "DL&GA (HC)-B", code: "CS312", periods: 1, type: "Theory", time: "10:50–11:40" },
+    { subject: "SE (NS)(CS311L)-B", code: "CS311L", periods: 1, type: "Theory", time: "11:40–12:30" },
+    { subject: "ADBMS (SDC)-B", code: "IT401B", periods: 1, type: "Theory", time: "12:30–13:20" },
+  ],
+  Thursday: [
+    { subject: "PSL-I (PN)-B", code: "CS314", periods: 2, type: "Theory", time: "09:10–10:50" },
+    { subject: "DL&GA (HC)-B", code: "CS312", periods: 1, type: "Theory", time: "10:50–11:40" },
+    { subject: "TOC (PM)-B", code: "CS313", periods: 1, type: "Theory", time: "11:40–12:30" },
+    { subject: "SSFE (SK)(HS204L)-B", code: "HS204L", periods: 1, type: "Theory", time: "12:30–13:20" },
+    { subject: "ADBMS Lab (NY/SDC/VK)", code: "IT401B-LAB", periods: 2, type: "Lab", time: "14:20–16:00" },
+  ],
+  Friday: [
+    { subject: "DL&GA (HC)-B", code: "CS312", periods: 1, type: "Theory", time: "09:10–10:00" },
+    { subject: "SE (NS)(CS311L)-B", code: "CS311L", periods: 1, type: "Theory", time: "10:00–10:50" },
+    { subject: "ADBMS (SDC)-B", code: "IT401B", periods: 1, type: "Theory", time: "10:50–11:40" },
+    { subject: "PSL (PN)-B", code: "CS314", periods: 2, type: "Theory", time: "11:40–13:20" },
+  ],
+};
+
+// Build human-readable schedule context for the system prompt
+function buildScheduleContext() {
+  const lines = [];
+  for (const [day, classes] of Object.entries(WEEKLY_SCHEDULE)) {
+    const totalPeriods = classes.reduce((s, c) => s + c.periods, 0);
+    lines.push(`\n${day.toUpperCase()} (${totalPeriods} periods total):`);
+    for (const c of classes) {
+      lines.push(`  • ${c.time}  [${c.type.toUpperCase()}]  ${c.subject} (${c.code}) — ${c.periods} period${c.periods > 1 ? 's' : ''}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+// Build a per-code count of periods per day — used by what-if logic in the prompt
+function buildDayPeriodMap() {
+  const result = {};
+  for (const [day, classes] of Object.entries(WEEKLY_SCHEDULE)) {
+    result[day] = {};
+    for (const c of classes) {
+      const key = c.code.replace('-LAB', '');
+      result[day][key] = (result[day][key] || 0) + c.periods;
+    }
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────
+//  TOOL DEFINITIONS (OpenAI-compatible for Groq)
+// ─────────────────────────────────────────────────
+const TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'calculator',
+      description: 'Evaluate a safe mathematical expression. Use for attendance percentage calculations, what-if simulations, arithmetic. Input must be a valid JS math expression string.',
+      parameters: {
+        type: 'object',
+        properties: {
+          expression: {
+            type: 'string',
+            description: 'A safe math expression, e.g. "((44+3)/(55+5))*100" or "Math.floor((44 - 0.75*55)/0.75)"',
+          },
+        },
+        required: ['expression'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_date_info',
+      description: 'Get the current date, day of week, week number, days until a future date, or day of week for a given date. Useful for schedule-based queries.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query_type: {
+            type: 'string',
+            enum: ['current_date', 'day_of_week', 'days_until'],
+            description: '"current_date" returns today\'s full info; "day_of_week" returns the weekday for a given date; "days_until" returns how many days until a given date.',
+          },
+          date: {
+            type: 'string',
+            description: 'ISO date string YYYY-MM-DD. Required for day_of_week and days_until.',
+          },
+        },
+        required: ['query_type'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: 'Search the web using Tavily for GENERAL knowledge questions only — tech concepts, definitions, news, coding help, etc. DO NOT use for attendance queries, schedule questions, or anything about Arsal\'s personal data.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'The search query to look up on the web.',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+];
+
+// ─────────────────────────────────────────────────
+//  TOOL EXECUTOR
+// ─────────────────────────────────────────────────
+async function executeTool(toolName, args) {
+  if (toolName === 'calculator') {
+    try {
+      // Safe eval using Function constructor — only math expressions allowed
+      const expr = String(args.expression || '').replace(/[^0-9+\-*/().,% MathflooreilsqrtPIabsroundmincmax\s]/g, '');
+      // biome-ignore lint/security/noGlobalEval: safe math expression evaluation only
+      const result = Function(`"use strict"; return (${expr})`)();
+      return { result: typeof result === 'number' ? result : null, expression: expr };
+    } catch (e) {
+      return { error: `Could not evaluate: ${e.message}` };
+    }
+  }
+
+  if (toolName === 'get_date_info') {
+    // IST offset: UTC+5:30
+    const now = new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000));
+    const todayISO = now.toISOString().split('T')[0];
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+    if (args.query_type === 'current_date') {
+      return {
+        date: todayISO,
+        day: days[now.getUTCDay()],
+        time_ist: now.toISOString().replace('T', ' ').substring(0, 16) + ' IST',
+        week_number: Math.ceil((now.getUTCDate() - now.getUTCDay() + 1) / 7),
+        today_schedule: WEEKLY_SCHEDULE[days[now.getUTCDay()]] || 'No classes (weekend/holiday)',
+      };
+    }
+
+    if (args.query_type === 'day_of_week' && args.date) {
+      const d = new Date(args.date + 'T00:00:00Z');
+      return { date: args.date, day: days[d.getUTCDay()] };
+    }
+
+    if (args.query_type === 'days_until' && args.date) {
+      const target = new Date(args.date + 'T00:00:00Z');
+      const diff = Math.ceil((target - now) / (1000 * 60 * 60 * 24));
+      return { date: args.date, days_until: diff, day: days[target.getUTCDay()] };
+    }
+
+    return { error: 'Unknown query_type' };
+  }
+
+  if (toolName === 'web_search') {
+    const tavilyKey = process.env.TAVILY_API_KEY;
+    if (!tavilyKey) return { error: 'Tavily API key not configured' };
+
+    try {
+      const resp = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: tavilyKey,
+          query: args.query,
+          search_depth: 'basic',
+          max_results: 4,
+          include_answer: true,
+        }),
+      });
+      const data = await resp.json();
+      return {
+        answer: data.answer || '',
+        results: (data.results || []).map(r => ({
+          title: r.title,
+          url: r.url,
+          snippet: r.content?.substring(0, 300),
+        })),
+      };
+    } catch (e) {
+      return { error: `Tavily search failed: ${e.message}` };
+    }
+  }
+
+  return { error: `Unknown tool: ${toolName}` };
+}
+
+// ─────────────────────────────────────────────────
+//  MAIN HANDLER
+// ─────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -9,16 +220,15 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { messages = [], attendanceData, scheduleData = [], shortAnswer = false } = req.body || {};
+  const { messages = [], attendanceData, shortAnswer = false } = req.body || {};
 
   // Support both direct attendance data and nested data wrapper
   const effectiveData = attendanceData?.attendanceCourseComponentInfoList
     ? attendanceData
     : (attendanceData?.data?.attendanceCourseComponentInfoList ? attendanceData.data : null);
 
-  // Build attendance context strictly for the LATEST semester
+  // ── Build attendance context ──
   let attendanceContext = 'User has not logged in yet or attendance data is loading.';
-  let courseSummaryMap = {};
 
   if (effectiveData && effectiveData.attendanceCourseComponentInfoList) {
     const courses = effectiveData.attendanceCourseComponentInfoList || [];
@@ -36,27 +246,14 @@ export default async function handler(req, res) {
         const needMore = total > 0 ? Math.max(0, Math.ceil((0.75 * total - present) / 0.25)) : 0;
         const isLab = (comp.componentName || '').toLowerCase().includes('lab') || (course.courseName || '').toLowerCase().includes('lab');
 
-        // Store for schedule matching & what-if calculation
-        const codeKey = (course.courseCode || '').toUpperCase().trim();
-        courseSummaryMap[codeKey] = {
-          name: course.courseName,
-          code: course.courseCode,
-          component: comp.componentName || (isLab ? 'Lab' : 'Theory'),
-          present,
-          total,
-          pct,
-          isLab,
-        };
-
-        return `  - [${isLab ? 'LAB' : 'THEORY'}] ${course.courseName} (${course.courseCode || ''}) [${comp.componentName || 'Regular'}]: Present ${present}/${total} (${pct}%) | Safe Bunks: ${canMiss > 0 ? canMiss : 0} | Needed to hit 75%: ${needMore}`;
+        return `  - [${isLab ? 'LAB' : 'THEORY'}] ${course.courseName} (${course.courseCode || ''}) [${comp.componentName || 'Regular'}]: Present ${present}/${total} (${pct}%) | Safe Bunks Left: ${canMiss > 0 ? canMiss : 0} | Classes needed to reach 75%: ${needMore}`;
       }),
     );
 
     const overallPct = totalC > 0 ? ((totalP / totalC) * 100).toFixed(1) : '0.0';
-
     attendanceContext = [
       `STUDENT INFO (LATEST SEMESTER ONLY):`,
-      `Student Name: ${effectiveData.fullName || 'Arsal'}`,
+      `Student Name: ${effectiveData.fullName || 'Arsal Masood'}`,
       `Roll Number: ${effectiveData.registrationNumber || '202401100200087'}`,
       `Degree & Branch: ${effectiveData.degreeName || 'B.Tech'} - ${effectiveData.branchShortName || 'CSE'}`,
       `Section: ${effectiveData.sectionName || 'B'} | Current Semester: ${effectiveData.semesterName || '5'}`,
@@ -67,106 +264,43 @@ export default async function handler(req, res) {
     ].join('\n');
   }
 
-  // Format the real Daywise Weekly Schedule (either dynamically passed from student ERP or fallback)
-  let scheduleContext = '';
-  if (Array.isArray(scheduleData) && scheduleData.length > 0) {
-    // Group schedule entries by Day of Week or Date
-    const daysMap = {};
-    scheduleData.forEach((entry) => {
-      if (!entry.lectureDate && !entry.start) return;
-      const dateStr = entry.lectureDate || entry.start.split(' ')[0];
-      // Format day name if possible
-      let dayName = dateStr;
-      try {
-        const parts = dateStr.includes('/') ? dateStr.split('/') : dateStr.split('-');
-        const dateObj = parts[0].length === 4 
-          ? new Date(parts[0], parts[1] - 1, parts[2]) 
-          : new Date(parts[2], parts[1] - 1, parts[0]);
-        dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
-      } catch (e) {
-        // keep dateStr
-      }
+  // ── Build schedule context ──
+  const scheduleContext = buildScheduleContext();
+  const dayPeriodMap = buildDayPeriodMap();
 
-      if (!daysMap[dayName]) daysMap[dayName] = [];
-      const startTime = entry.start ? entry.start.split(' ')[1] || entry.start : '';
-      const endTime = entry.end ? entry.end.split(' ')[1] || entry.end : '';
-      daysMap[dayName].push(`    • ${startTime}-${endTime}: ${entry.courseName || entry.title} (${entry.courseCode || ''}) [${entry.courseCompName || 'Theory'}] - Room: ${entry.classRoom || 'N/A'}`);
-    });
-
-    scheduleContext = Object.entries(daysMap)
-      .map(([day, classes]) => `${day.toUpperCase()}:\n${classes.join('\n')}`)
-      .join('\n\n');
-  } else {
-    // Standard Semester 5 / KIET Department Weekly Routine fallback
-    scheduleContext = `
-MONDAY:
-    • 09:30-10:30: Advance Databases (IT401B) [Blended]
-    • 10:30-11:30: Aptitude - 3 (HS203L) [Theory]
-    • 11:30-12:30: AWS Cloud Architecture and Data Engineering (CS337E) [Blended]
-    • 13:30-15:30: Advance Databases Lab (IT401B-P) [Lab]
-
-TUESDAY:
-    • 09:30-10:30: Advance Databases (IT401B) [Blended]
-    • 10:30-11:30: AWS Cloud Architecture (CS337E) [Blended]
-    • 11:30-12:30: Aptitude - 3 (HS203L) [Theory]
-    • 13:30-15:30: AWS Cloud Lab (CS337E-P) [Lab]
-
-WEDNESDAY:
-    • 09:30-10:30: Aptitude - 3 (HS203L) [Theory]
-    • 10:30-11:30: Advance Databases (IT401B) [Blended]
-    • 11:30-12:30: AWS Cloud Architecture (CS337E) [Blended]
-    • 13:30-14:30: Aptitude - 3 (HS203L) [Theory]
-    • 14:30-16:30: Project / Industry Elective Lab
-
-THURSDAY:
-    • 09:30-10:30: Advance Databases (IT401B) [Blended]
-    • 10:30-11:30: AWS Cloud Architecture (CS337E) [Blended]
-    • 11:30-12:30: Aptitude - 3 (HS203L) [Theory]
-    • 13:30-15:30: Advance Databases Practice / Lab [Lab]
-
-FRIDAY:
-    • 09:30-10:30: Aptitude - 3 (HS203L) [Theory]
-    • 10:30-11:30: AWS Cloud Architecture (CS337E) [Blended]
-    • 11:30-12:30: Advance Databases (IT401B) [Blended]
-    • 13:30-15:30: Cloud Data Engineering Lab [Lab]
-
-SATURDAY:
-    • 09:30-11:30: Special Tutorial / Industry Mentorship
-    • 11:30-13:30: Remedial & Practical Sessions
-`;
-  }
-
+  // ── System prompt ──
   const systemPrompt = `You are SpiderBot 🕷️ — the ultra-smart, hilarious GenZ attendance companion for Arsal inside the "F this Attendance" KIET Student Portal.
 You speak like a cool college senior / Spidey buddy in friendly Hinglish (Hindi + English mix).
 
-CRITICAL DIRECTIVES:
-1. ONLY USE LATEST SEMESTER DATA: All attendance counts and percentages MUST be strictly taken from the "LATEST SEMESTER DATA" below. Do not use older semester stats!
-2. COMPLETE WHAT-IF & SCENARIO CALCULATIONS:
-   When user asks:
-   - "What will be my attendance if I attend all classes on Thursday and Friday?"
-   - "What if I get absent on Thursday & Friday and then attend next 2 days?"
-   - "Can I bunk Monday classes?"
+YOU HAVE TOOLS — use them actively:
+- **calculator**: For ALL attendance math, percentages, what-if simulations. ALWAYS use this tool to do math — do not guess or calculate in your head.
+- **get_date_info**: To know today's date/day, check what classes are today, calculate days until exams, etc.
+- **web_search**: ONLY for general knowledge — tech concepts, coding doubts, general facts. NEVER use for Arsal's attendance, schedule, or personal queries.
+
+CRITICAL RULES:
+1. ONLY USE LATEST SEMESTER DATA for attendance queries. Never use older semester stats.
+2. WHAT-IF SCENARIO CALCULATIONS — when user asks things like:
+   - "What if I attend all classes on Thursday and Friday?"
+   - "What if I bunk Monday?"
+   - "What if I am absent for 2 days and attend the next 3?"
    You MUST:
-   a. Look up the exact classes scheduled on those specific days from the DAYWISE SCHEDULE below.
-   b. Count how many periods are held on those days (e.g., Thursday has 3 theory + 1 lab = 4 periods).
-   c. Do the exact math:
-      - If attending N classes: New Present = Present + N, New Total = Total + N.
-        New % = ((Present + N) / (Total + N)) * 100.
-      - If absent for N classes: New Present = Present, New Total = Total + N.
-        New % = (Present / (Total + N)) * 100.
-      - If absent on Day 1 & Day 2 (say 6 classes missed) and then attending Day 3 & Day 4 (say 6 classes attended):
-        Total classes held = Total + 12.
-        New Present = Present + 6.
-        New % = ((Present + 6) / (Total + 12)) * 100.
-   d. Give both SUBJECT-WISE breakdown (which subject changes by how much) and the OVERALL percentage!
+   a. Look up the EXACT classes for those days from the TIMETABLE below.
+   b. Count total periods for those days (labs count separately — each lab period = 1 period for attendance).
+   c. Use the calculator tool to compute: 
+      - Attending N periods: New% = ((present+N)/(total+N))*100
+      - Absent for N periods: New% = (present/(total+N))*100
+      - Combined: Absent M then attend N: New% = ((present+N)/(total+M+N))*100
+   d. Show BOTH subject-wise AND overall impact.
 3. 75% EXAM ELIGIBILITY:
-   - Remind the user whether each subject stays safely >= 75% or falls below 75% (danger of being debarred/detained from End Sem Exams!).
-   - Labs are separate from theory components.
-4. TONE & STYLE:
-   - Energetic, helpful, humorous GenZ vibe ('fr fr', 'no cap', 'bro is cooking', 'aura +1000', 'moye moye', 'lock in').
+   - Warn if any subject drops below 75% (risk of being debarred from End Sem Exams!)
+   - Labs are tracked separately from theory.
+4. TONE: GenZ Hinglish energy — 'fr fr', 'no cap', 'bro is cooking', 'aura +1000', 'moye moye', 'lock in', 'gyatt', 'sigma grindset'.
    ${shortAnswer
-     ? '- VOICE THINK CLOUD: Max 2 punchy sentences with the exact percentage!'
-     : '- Clear formatted reply with bullet points or neat markdown tables for easy reading.'}
+     ? '- VOICE MODE: Max 2 punchy sentences with the exact percentage!'
+     : '- Use bullet points or neat tables for easy reading.'}
+
+TIMETABLE KEY (Periods per day):
+${JSON.stringify(dayPeriodMap, null, 2)}
 
 ══════════════════════════════════════════════════════════
 CURRENT LATEST SEMESTER ATTENDANCE (CYBERVIDYA REAL-TIME):
@@ -174,61 +308,121 @@ CURRENT LATEST SEMESTER ATTENDANCE (CYBERVIDYA REAL-TIME):
 ${attendanceContext}
 
 ══════════════════════════════════════════════════════════
-DAYWISE WEEKLY CLASS TIMETABLE:
+EXACT DAYWISE WEEKLY TIMETABLE (Section B, CSE, Sem 5):
 ══════════════════════════════════════════════════════════
 ${scheduleContext}
+
+SUBJECT CODE LEGEND:
+  PE       = Physical Education
+  CS311L   = Software Engineering (SE) — Theory
+  CS311L-LAB = SE Lab
+  CS312    = Digital Logic & Graph Algorithms (DL&GA) — Theory
+  CS312-LAB = DL&GA Lab
+  CS313    = Theory of Computation (TOC) — Theory
+  CS314    = Problem Solving Lab-I (PSL-I) — Theory
+  IT401B   = Advanced Database Management Systems (ADBMS) — Theory
+  IT401B-LAB = ADBMS Lab
+  HS204L   = Soft Skills For Employability (SSFE) — Theory
+  HS203L   = Aptitude-3 (APT) — Theory
 `;
 
+  // ── Call Groq with tool support ──
   try {
     const groqKey = process.env.GROQ_API_KEY;
     if (!groqKey) {
-      return res.status(500).json({ message: "GROQ_API_KEY not configured in Vercel env vars!" });
+      return res.status(500).json({ message: 'GROQ_API_KEY not configured in Vercel env vars!' });
     }
 
-    const callGroq = async (modelName, tokens) => {
-      return await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    // Model: llama-3.3-70b has the best tool-calling support on Groq
+    const MODEL = 'llama-3.3-70b-versatile';
+    const MAX_TOOL_ROUNDS = 4; // prevent infinite loops
+
+    let conversationMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages,
+    ];
+
+    let finalReply = null;
+
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const groqBody = {
+        model: MODEL,
+        messages: conversationMessages,
+        max_tokens: shortAnswer ? 200 : 900,
+        temperature: 0.65,
+        tools: TOOLS,
+        tool_choice: 'auto',
+      };
+
+      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${groqKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model: modelName,
-          messages: [{ role: 'system', content: systemPrompt }, ...messages],
-          max_tokens: tokens,
-          temperature: 0.7,
-        }),
+        body: JSON.stringify(groqBody),
       });
-    };
 
-    // Try Qwen 2.5 fast model first
-    let groqRes = await callGroq('qwen/qwen3.8-27b', shortAnswer ? 140 : 650);
-
-    if (!groqRes.ok) {
-      groqRes = await callGroq('openai/gpt-oss-120b', shortAnswer ? 300 : 900);
-    }
-
-    if (!groqRes.ok) {
-      const errText = await groqRes.text();
-      console.error('Groq API error:', errText);
-      return res.status(502).json({ message: "Systumm hang ho gaya! Groq API had a hiccup. Try again 🕸️" });
-    }
-
-    const data = await groqRes.json();
-    let reply = data.choices?.[0]?.message?.content;
-
-    if (!reply || reply.trim().length === 0) {
-      const fallbackRes = await callGroq('openai/gpt-oss-120b', 900);
-      if (fallbackRes.ok) {
-        const fallbackData = await fallbackRes.json();
-        reply = fallbackData.choices?.[0]?.message?.content;
+      if (!groqRes.ok) {
+        const errText = await groqRes.text();
+        console.error('Groq API error:', errText);
+        // Fallback: try without tools if model issue
+        if (round === 0) {
+          const fallbackRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'qwen/qwen3.8-27b',
+              messages: conversationMessages,
+              max_tokens: shortAnswer ? 200 : 750,
+              temperature: 0.65,
+            }),
+          });
+          if (fallbackRes.ok) {
+            const fd = await fallbackRes.json();
+            finalReply = fd.choices?.[0]?.message?.content || null;
+          }
+          break;
+        }
+        break;
       }
+
+      const data = await groqRes.json();
+      const choice = data.choices?.[0];
+      const assistantMsg = choice?.message;
+
+      if (!assistantMsg) break;
+
+      // If the model is done (no tool calls), extract final reply
+      if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
+        finalReply = assistantMsg.content || null;
+        break;
+      }
+
+      // Execute all tool calls in this round
+      conversationMessages.push(assistantMsg);
+
+      for (const toolCall of assistantMsg.tool_calls) {
+        let toolArgs = {};
+        try { toolArgs = JSON.parse(toolCall.function.arguments || '{}'); } catch { /* ignore */ }
+
+        const toolResult = await executeTool(toolCall.function.name, toolArgs);
+        conversationMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(toolResult),
+        });
+      }
+      // Loop back — let the model see the tool results and respond
     }
 
-    reply = reply && reply.trim().length > 0 ? reply : "Arre bhai, connection drop ho gaya tha! Ek baar fir pooch le 🕸️";
-    return res.status(200).json({ message: reply });
+    finalReply = finalReply && finalReply.trim().length > 0
+      ? finalReply
+      : 'Arre bhai, connection drop ho gaya tha! Ek baar fir pooch le 🕸️';
+
+    return res.status(200).json({ message: finalReply });
   } catch (err) {
     console.error('chat handler error:', err);
-    return res.status(500).json({ message: 'SpiderBot web-shooters tangled. Try again in a moment!' });
+    return res.status(500).json({ message: 'SpiderBot web-shooters tangled. Try again in a moment! 🕸️' });
   }
 }
