@@ -25,6 +25,11 @@ export default function Profile({
 	const [calendarError, setCalendarError] = useState("");
 
 	function handleLogout(): void {
+		try {
+			localStorage.removeItem("spidey_cached_attendance_data");
+		} catch {
+			// ignore
+		}
 		clearAuthCookies();
 		setAttendanceData(null);
 	}

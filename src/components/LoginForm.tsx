@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppContext } from "../contexts/AppContext";
 import {
 	AUTH_COOKIE_NAME,
+	CACHED_ATTENDANCE_KEY,
 	COOKIE_EXPIRY,
 	PASSWORD_COOKIE_NAME,
 	REMEMBER_ME_COOKIE_NAME,
@@ -62,6 +63,11 @@ async function loadAttendance(
 					})),
 			})),
 	};
+	try {
+		localStorage.setItem(CACHED_ATTENDANCE_KEY, JSON.stringify(updatedStudentDetails));
+	} catch {
+		// ignore storage quota issues
+	}
 	setAttendanceData(updatedStudentDetails);
 }
 
@@ -108,7 +114,7 @@ function LoginForm({ setIsTnCVisible }: LoginFormProps) {
 		}
 	};
 
-	// Load existing session on mount
+	// Load existing session or cached attendance on mount to prevent OTP spam
 	useEffect(() => {
 		const token = Cookies.get(AUTH_COOKIE_NAME);
 		if (token) {
@@ -116,12 +122,38 @@ function LoginForm({ setIsTnCVisible }: LoginFormProps) {
 				try {
 					await loadAttendance(token, setAttendanceData);
 				} catch (error) {
+					// Check if we have cached attendance before nuking session
+					try {
+						const cached = localStorage.getItem(CACHED_ATTENDANCE_KEY);
+						if (cached) {
+							const parsed = JSON.parse(cached);
+							if (parsed?.attendanceCourseComponentInfoList) {
+								setAttendanceData(parsed);
+								return;
+							}
+						}
+					} catch {
+						// ignore
+					}
 					setError(error instanceof Error ? error.message : String(error));
 					Cookies.remove(AUTH_COOKIE_NAME);
 					Cookies.remove(STUDENT_ID_COOKIE_NAME);
 				}
 			};
 			loadData();
+		} else {
+			// If no token, check if we have cached attendance data from previous login
+			try {
+				const cached = localStorage.getItem(CACHED_ATTENDANCE_KEY);
+				if (cached) {
+					const parsed = JSON.parse(cached);
+					if (parsed?.attendanceCourseComponentInfoList) {
+						setAttendanceData(parsed);
+					}
+				}
+			} catch {
+				// ignore
+			}
 		}
 	}, [setAttendanceData]);
 
@@ -250,10 +282,17 @@ function LoginForm({ setIsTnCVisible }: LoginFormProps) {
 		};
 	}, [step, submitOtp]);
 
-	// --- Auto-login on mount ---
+	// --- Auto-login on mount (skip if cached data or token is active to avoid OTP lockouts) ---
 	useEffect(() => {
 		const token = Cookies.get(AUTH_COOKIE_NAME);
-		if (token || hasAutoLoggedIn.current) return;
+		const cached = (() => {
+			try {
+				return localStorage.getItem(CACHED_ATTENDANCE_KEY);
+			} catch {
+				return null;
+			}
+		})();
+		if (token || cached || hasAutoLoggedIn.current) return;
 		hasAutoLoggedIn.current = true;
 
 		const doAutoLogin = async () => {

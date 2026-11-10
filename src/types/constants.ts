@@ -44,6 +44,7 @@ export const COOKIE_EXPIRY = 7; // Days
 export const STUDENT_ID_COOKIE_NAME = "studentId";
 export const TARGET_PERCENTAGE = 75;
 export const REQUIRED_EXTENSION_VERSION = "3.6";
+export const CACHED_ATTENDANCE_KEY = "spidey_cached_attendance_data";
 
 // College non-working days in local YYYY-MM-DD format. The ERP timetable can
 // still list classes on these dates, so schedule-based features must explicitly

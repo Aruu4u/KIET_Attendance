@@ -1,77 +1,5 @@
-// SpiderBot AI — SpiderMan GenZ Attendance Advisor
-// Groq API-powered chatbot with LIVE attendance data + KIET timetable knowledge
-
-// ─────────────────────────────────────────────
-// HARDCODED WEEKLY TIMETABLE
-// Branch: CSE-AI | Section: B | Sem: 3 (Odd 2024-25)
-// Source: KIET student portal timetable
-// ─────────────────────────────────────────────
-const WEEKLY_TIMETABLE = `
-KIET GROUP OF INSTITUTIONS — WEEKLY CLASS SCHEDULE
-Branch: CSE (AI) | Section: B | Semester: 3 | Academic Year: 2024-25
-Roll: 202401100200087 | Student: Arsal
-
-ATTENDANCE RULE: Min 75% per subject to be eligible for End-Semester Exam.
-LABS count separately from THEORY (they are graded independently).
-Missing a 2-hour lab slot = missing 1 lab attendance unit.
-
-MONDAY:
-  09:30–10:30  Mathematics-III (MA3101) [Theory]
-  10:30–11:30  Data Structures using C (CS3102) [Theory]
-  11:30–12:30  Digital Electronics (EC3103) [Theory]
-  01:30–02:30  Python Programming (CS3104) [Theory]
-  02:30–04:30  Data Structures Lab (CS3151) [Lab — 2hrs]
-
-TUESDAY:
-  09:30–10:30  Mathematics-III (MA3101) [Theory]
-  10:30–11:30  Computer Organization & Architecture (CS3103) [Theory]
-  11:30–12:30  Digital Electronics (EC3103) [Theory]
-  01:30–03:30  Digital Electronics Lab (EC3151) [Lab — 2hrs]
-  03:30–04:30  Python Programming (CS3104) [Theory]
-
-WEDNESDAY:
-  09:30–11:30  Python Programming Lab (CS3152) [Lab — 2hrs]
-  11:30–12:30  Data Structures using C (CS3102) [Theory]
-  01:30–02:30  Computer Organization & Architecture (CS3103) [Theory]
-  02:30–03:30  Mathematics-III (MA3101) [Theory]
-  03:30–04:30  Professional Communication (HU3101) [Theory]
-
-THURSDAY:
-  09:30–10:30  Digital Electronics (EC3103) [Theory]
-  10:30–11:30  Data Structures using C (CS3102) [Theory]
-  11:30–12:30  Computer Organization & Architecture (CS3103) [Theory]
-  01:30–03:30  Computer Organization & Architecture Lab (CS3153) [Lab — 2hrs]
-  03:30–04:30  Professional Communication (HU3101) [Theory]
-
-FRIDAY:
-  09:30–10:30  Professional Communication (HU3101) [Theory]
-  10:30–11:30  Mathematics-III (MA3101) [Theory]
-  11:30–12:30  Python Programming (CS3104) [Theory]
-  01:30–02:30  Data Structures using C (CS3102) [Theory]
-  02:30–03:30  Computer Organization & Architecture (CS3103) [Theory]
-
-SATURDAY:
-  09:30–10:30  Python Programming (CS3104) [Theory]
-  10:30–11:30  Digital Electronics (EC3103) [Theory]
-  (Remaining slots vary — check portal for updates)
-
-SUBJECT LEGEND:
-  MA3101  — Mathematics-III (Theory)
-  CS3102  — Data Structures using C (Theory)
-  EC3103  — Digital Electronics (Theory)
-  CS3103  — Computer Organization & Architecture (Theory)
-  CS3104  — Python Programming (Theory)
-  HU3101  — Professional Communication (Theory)
-  CS3151  — Data Structures Lab (Lab)
-  EC3151  — Digital Electronics Lab (Lab)
-  CS3152  — Python Programming Lab (Lab)
-  CS3153  — Computer Organization & Architecture Lab (Lab)
-
-HOW TO CALCULATE SAFE BUNKS:
-  Formula: Safe_bunks = floor((Present - 0.75 × Total) / 0.75)
-  If result is negative, student MUST attend that many consecutive classes to reach 75%.
-  Labs and Theory are tracked separately — both must stay above 75%.
-`;
+// SpiderBot AI — SpiderMan GenZ Attendance Advisor & Attendance Simulator
+// Groq API-powered chatbot with LIVE dynamic timetable + LIVE attendance simulation
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -81,15 +9,17 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { messages = [], attendanceData, shortAnswer = false } = req.body || {};
+  const { messages = [], attendanceData, scheduleData = [], shortAnswer = false } = req.body || {};
 
   // Support both direct attendance data and nested data wrapper
   const effectiveData = attendanceData?.attendanceCourseComponentInfoList
     ? attendanceData
     : (attendanceData?.data?.attendanceCourseComponentInfoList ? attendanceData.data : null);
 
-  // Build attendance context from LIVE CyberVidya data
+  // Build attendance context strictly for the LATEST semester
   let attendanceContext = 'User has not logged in yet or attendance data is loading.';
+  let courseSummaryMap = {};
+
   if (effectiveData && effectiveData.attendanceCourseComponentInfoList) {
     const courses = effectiveData.attendanceCourseComponentInfoList || [];
     let totalP = 0;
@@ -105,53 +35,148 @@ export default async function handler(req, res) {
         const canMiss = total > 0 ? Math.floor((present - 0.75 * total) / 0.75) : 0;
         const needMore = total > 0 ? Math.max(0, Math.ceil((0.75 * total - present) / 0.25)) : 0;
         const isLab = (comp.componentName || '').toLowerCase().includes('lab') || (course.courseName || '').toLowerCase().includes('lab');
-        return `  - [${isLab ? 'LAB' : 'THEORY'}] ${course.courseName} (${course.courseCode || ''}) [${comp.componentName || 'Regular'}]: ${present}/${total} attended (${pct}%) -> ${
-          canMiss > 0
-            ? `✅ Can safely bunk ${canMiss} more class(es) and stay above 75%`
-            : (needMore > 0
-                ? `🚨 DANGER! Must attend next ${needMore} consecutive class(es) to hit 75% (exam eligibility at risk!)`
-                : `⚠️ Exactly at 75% line! Don't miss even one!`)
-        }`;
+
+        // Store for schedule matching & what-if calculation
+        const codeKey = (course.courseCode || '').toUpperCase().trim();
+        courseSummaryMap[codeKey] = {
+          name: course.courseName,
+          code: course.courseCode,
+          component: comp.componentName || (isLab ? 'Lab' : 'Theory'),
+          present,
+          total,
+          pct,
+          isLab,
+        };
+
+        return `  - [${isLab ? 'LAB' : 'THEORY'}] ${course.courseName} (${course.courseCode || ''}) [${comp.componentName || 'Regular'}]: Present ${present}/${total} (${pct}%) | Safe Bunks: ${canMiss > 0 ? canMiss : 0} | Needed to hit 75%: ${needMore}`;
       }),
     );
 
     const overallPct = totalC > 0 ? ((totalP / totalC) * 100).toFixed(1) : '0.0';
 
     attendanceContext = [
+      `STUDENT INFO (LATEST SEMESTER ONLY):`,
       `Student Name: ${effectiveData.fullName || 'Arsal'}`,
       `Roll Number: ${effectiveData.registrationNumber || '202401100200087'}`,
-      `Branch: ${effectiveData.branchShortName || 'CSE-AI'} | Section: ${effectiveData.sectionName || 'B'} | Semester: ${effectiveData.semesterName || '3'}`,
-      `OVERALL ATTENDANCE: ${totalP}/${totalC} = ${overallPct}%`,
+      `Degree & Branch: ${effectiveData.degreeName || 'B.Tech'} - ${effectiveData.branchShortName || 'CSE'}`,
+      `Section: ${effectiveData.sectionName || 'B'} | Current Semester: ${effectiveData.semesterName || '5'}`,
+      `OVERALL LATEST SEMESTER ATTENDANCE: ${totalP}/${totalC} = ${overallPct}%`,
       ``,
-      `SUBJECT-WISE LIVE ATTENDANCE:`,
+      `SUBJECT-WISE LATEST SEMESTER METRICS:`,
       ...courseLines,
     ].join('\n');
   }
 
-  const systemPrompt = `You are SpiderBot 🕷️ — the chaotic, hilarious GenZ pixel attendance companion inside Arsal's "F this Attendance" portal at KIET Group of Institutions.
-You speak like a GenZ college bro mixed with Spider-Man swagger and Indian engineering student memes.
+  // Format the real Daywise Weekly Schedule (either dynamically passed from student ERP or fallback)
+  let scheduleContext = '';
+  if (Array.isArray(scheduleData) && scheduleData.length > 0) {
+    // Group schedule entries by Day of Week or Date
+    const daysMap = {};
+    scheduleData.forEach((entry) => {
+      if (!entry.lectureDate && !entry.start) return;
+      const dateStr = entry.lectureDate || entry.start.split(' ')[0];
+      // Format day name if possible
+      let dayName = dateStr;
+      try {
+        const parts = dateStr.includes('/') ? dateStr.split('/') : dateStr.split('-');
+        const dateObj = parts[0].length === 4 
+          ? new Date(parts[0], parts[1] - 1, parts[2]) 
+          : new Date(parts[2], parts[1] - 1, parts[0]);
+        dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+      } catch (e) {
+        // keep dateStr
+      }
 
-KEY RULES:
-- Use GenZ slangs naturally: 'fr fr', 'no cap', 'bro is cooked', 'aura +1000', 'lock in', 'stand on business', 'let him cook', 'canon event', 'skill issue', 'rizz', 'sigma'.
-- Indian college memes: 'Aayein?', 'Waah kya scene hai', 'Babu bhaiya', 'Padhai likhai mein dhyan lagao', 'Moye Moye', 'Ek aur cut'.
-- Answer DIRECTLY with real numbers from the attendance data below — no vague answers!
-- For bunk/skip questions: Use formula → Safe_bunks = floor((Present - 0.75 × Total) / 0.75). Show the math.
-- Labs (CS3151, EC3151, CS3152, CS3153) are tracked SEPARATELY from theory — remind user of this.
-- Minimum 75% attendance required per subject to sit in End-Semester Exam (ESE).
-- Today's date context: November 2026. Use this to reason about remaining classes if asked.
-${shortAnswer
-  ? '- VOICE MODE (think-cloud bubble): Reply in MAXIMUM 2 sentences, 25 words. Be punchy and direct with the number!'
-  : '- Keep replies under 150 words. Use line breaks for readability.'}
+      if (!daysMap[dayName]) daysMap[dayName] = [];
+      const startTime = entry.start ? entry.start.split(' ')[1] || entry.start : '';
+      const endTime = entry.end ? entry.end.split(' ')[1] || entry.end : '';
+      daysMap[dayName].push(`    • ${startTime}-${endTime}: ${entry.courseName || entry.title} (${entry.courseCode || ''}) [${entry.courseCompName || 'Theory'}] - Room: ${entry.classRoom || 'N/A'}`);
+    });
 
-═══════════════════════════════════════
-LIVE ATTENDANCE DATA (from CyberVidya):
-═══════════════════════════════════════
+    scheduleContext = Object.entries(daysMap)
+      .map(([day, classes]) => `${day.toUpperCase()}:\n${classes.join('\n')}`)
+      .join('\n\n');
+  } else {
+    // Standard Semester 5 / KIET Department Weekly Routine fallback
+    scheduleContext = `
+MONDAY:
+    • 09:30-10:30: Advance Databases (IT401B) [Blended]
+    • 10:30-11:30: Aptitude - 3 (HS203L) [Theory]
+    • 11:30-12:30: AWS Cloud Architecture and Data Engineering (CS337E) [Blended]
+    • 13:30-15:30: Advance Databases Lab (IT401B-P) [Lab]
+
+TUESDAY:
+    • 09:30-10:30: Advance Databases (IT401B) [Blended]
+    • 10:30-11:30: AWS Cloud Architecture (CS337E) [Blended]
+    • 11:30-12:30: Aptitude - 3 (HS203L) [Theory]
+    • 13:30-15:30: AWS Cloud Lab (CS337E-P) [Lab]
+
+WEDNESDAY:
+    • 09:30-10:30: Aptitude - 3 (HS203L) [Theory]
+    • 10:30-11:30: Advance Databases (IT401B) [Blended]
+    • 11:30-12:30: AWS Cloud Architecture (CS337E) [Blended]
+    • 13:30-14:30: Aptitude - 3 (HS203L) [Theory]
+    • 14:30-16:30: Project / Industry Elective Lab
+
+THURSDAY:
+    • 09:30-10:30: Advance Databases (IT401B) [Blended]
+    • 10:30-11:30: AWS Cloud Architecture (CS337E) [Blended]
+    • 11:30-12:30: Aptitude - 3 (HS203L) [Theory]
+    • 13:30-15:30: Advance Databases Practice / Lab [Lab]
+
+FRIDAY:
+    • 09:30-10:30: Aptitude - 3 (HS203L) [Theory]
+    • 10:30-11:30: AWS Cloud Architecture (CS337E) [Blended]
+    • 11:30-12:30: Advance Databases (IT401B) [Blended]
+    • 13:30-15:30: Cloud Data Engineering Lab [Lab]
+
+SATURDAY:
+    • 09:30-11:30: Special Tutorial / Industry Mentorship
+    • 11:30-13:30: Remedial & Practical Sessions
+`;
+  }
+
+  const systemPrompt = `You are SpiderBot 🕷️ — the ultra-smart, hilarious GenZ attendance companion for Arsal inside the "F this Attendance" KIET Student Portal.
+You speak like a cool college senior / Spidey buddy in friendly Hinglish (Hindi + English mix).
+
+CRITICAL DIRECTIVES:
+1. ONLY USE LATEST SEMESTER DATA: All attendance counts and percentages MUST be strictly taken from the "LATEST SEMESTER DATA" below. Do not use older semester stats!
+2. COMPLETE WHAT-IF & SCENARIO CALCULATIONS:
+   When user asks:
+   - "What will be my attendance if I attend all classes on Thursday and Friday?"
+   - "What if I get absent on Thursday & Friday and then attend next 2 days?"
+   - "Can I bunk Monday classes?"
+   You MUST:
+   a. Look up the exact classes scheduled on those specific days from the DAYWISE SCHEDULE below.
+   b. Count how many periods are held on those days (e.g., Thursday has 3 theory + 1 lab = 4 periods).
+   c. Do the exact math:
+      - If attending N classes: New Present = Present + N, New Total = Total + N.
+        New % = ((Present + N) / (Total + N)) * 100.
+      - If absent for N classes: New Present = Present, New Total = Total + N.
+        New % = (Present / (Total + N)) * 100.
+      - If absent on Day 1 & Day 2 (say 6 classes missed) and then attending Day 3 & Day 4 (say 6 classes attended):
+        Total classes held = Total + 12.
+        New Present = Present + 6.
+        New % = ((Present + 6) / (Total + 12)) * 100.
+   d. Give both SUBJECT-WISE breakdown (which subject changes by how much) and the OVERALL percentage!
+3. 75% EXAM ELIGIBILITY:
+   - Remind the user whether each subject stays safely >= 75% or falls below 75% (danger of being debarred/detained from End Sem Exams!).
+   - Labs are separate from theory components.
+4. TONE & STYLE:
+   - Energetic, helpful, humorous GenZ vibe ('fr fr', 'no cap', 'bro is cooking', 'aura +1000', 'moye moye', 'lock in').
+   ${shortAnswer
+     ? '- VOICE THINK CLOUD: Max 2 punchy sentences with the exact percentage!'
+     : '- Clear formatted reply with bullet points or neat markdown tables for easy reading.'}
+
+══════════════════════════════════════════════════════════
+CURRENT LATEST SEMESTER ATTENDANCE (CYBERVIDYA REAL-TIME):
+══════════════════════════════════════════════════════════
 ${attendanceContext}
 
-═══════════════════════════════════════
-WEEKLY TIMETABLE (use this for day/date bunk planning):
-═══════════════════════════════════════
-${WEEKLY_TIMETABLE}
+══════════════════════════════════════════════════════════
+DAYWISE WEEKLY CLASS TIMETABLE:
+══════════════════════════════════════════════════════════
+${scheduleContext}
 `;
 
   try {
@@ -171,17 +196,16 @@ ${WEEKLY_TIMETABLE}
           model: modelName,
           messages: [{ role: 'system', content: systemPrompt }, ...messages],
           max_tokens: tokens,
-          temperature: 0.72,
+          temperature: 0.7,
         }),
       });
     };
 
-    // Try Qwen 2.5 32B/27B first (standard fast model, non-reasoning, no safety lecture on attendance bunks)
-    let groqRes = await callGroq('qwen/qwen3.8-27b', shortAnswer ? 120 : 500);
+    // Try Qwen 2.5 fast model first
+    let groqRes = await callGroq('qwen/qwen3.8-27b', shortAnswer ? 140 : 650);
 
-    // If Qwen fails or returns empty/error, fallback to gpt-oss-120b with generous token budget
     if (!groqRes.ok) {
-      groqRes = await callGroq('openai/gpt-oss-120b', shortAnswer ? 300 : 800);
+      groqRes = await callGroq('openai/gpt-oss-120b', shortAnswer ? 300 : 900);
     }
 
     if (!groqRes.ok) {
@@ -193,7 +217,6 @@ ${WEEKLY_TIMETABLE}
     const data = await groqRes.json();
     let reply = data.choices?.[0]?.message?.content;
 
-    // If content was empty due to internal reasoning tokens eating the budget, fallback to second model
     if (!reply || reply.trim().length === 0) {
       const fallbackRes = await callGroq('openai/gpt-oss-120b', 900);
       if (fallbackRes.ok) {
