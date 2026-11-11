@@ -9,6 +9,7 @@ import {
 	formatAuthHeader,
 	getWeekRange,
 	isNonWorkingScheduleDate,
+	parseScheduleDate,
 } from "../../types/utils";
 
 type ClassEntry = ScheduleEntry & {
@@ -143,36 +144,30 @@ export default function Projections() {
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
 
-		const parseDate = (lectureDate: string, startTime: string): Date => {
-			const [day, month, year] = lectureDate.split("/").map(Number);
-			const [hours, minutes, seconds] = startTime.split(":");
-			return new Date(
-				year,
-				month - 1,
-				day,
-				Number(hours),
-				Number(minutes),
-				Number(seconds),
-			);
-		};
-
 		schedule
 			.filter((c) => {
 				if (c.type !== "CLASS") return false;
-				const [day, month, year] = c.lectureDate.split("/").map(Number);
-				const classDate = new Date(year, month - 1, day);
+				const rawDate = c.lectureDate || c.start?.split(" ")[0] || "";
+				const classDate = parseScheduleDate(rawDate);
+				if (!classDate) return false;
 				return classDate >= today;
 			})
-			.map((c) => ({
-				...c,
-				timestamp: parseDate(c.lectureDate, c.start.split(" ")[1]).getTime(),
-			}))
+			.map((c) => {
+				const rawDate = c.lectureDate || c.start?.split(" ")[0] || "";
+				const classDate = parseScheduleDate(rawDate) || new Date();
+				const startTimeStr = c.start?.split(" ")[1] || "00:00:00";
+				const [h, m, s] = startTimeStr.split(":").map(Number);
+				classDate.setHours(h || 0, m || 0, s || 0);
+
+				return {
+					...c,
+					timestamp: classDate.getTime(),
+					classDate,
+				};
+			})
 			.sort((a, b) => a.timestamp - b.timestamp)
 			.forEach((c) => {
-				const [day, month, year] = c.lectureDate.split("/").map(Number);
-				const classDate = new Date(year, month - 1, day);
-
-				const dayKey = classDate.toLocaleDateString("en-US", {
+				const dayKey = c.classDate.toLocaleDateString("en-US", {
 					weekday: "short",
 					month: "short",
 					day: "numeric",

@@ -279,18 +279,25 @@ YOU HAVE TOOLS — use them actively:
 
 CRITICAL RULES:
 1. ONLY USE LATEST SEMESTER DATA for attendance queries. Never use older semester stats.
-2. WHAT-IF SCENARIO CALCULATIONS — when user asks things like:
-   - "What if I attend all classes on Thursday and Friday?"
-   - "What if I bunk Monday?"
-   - "What if I am absent for 2 days and attend the next 3?"
-   You MUST:
-   a. Look up the EXACT classes for those days from the TIMETABLE below.
-   b. Count total periods for those days (labs count separately — each lab period = 1 period for attendance).
-   c. Use the calculator tool to compute: 
-      - Attending N periods: New% = ((present+N)/(total+N))*100
-      - Absent for N periods: New% = (present/(total+N))*100
-      - Combined: Absent M then attend N: New% = ((present+N)/(total+M+N))*100
-   d. Show BOTH subject-wise AND overall impact.
+2. WHAT-IF & ABSENT ATTENDANCE ESTIMATION MATH (CRITICAL):
+   When calculating future, hypothetical, or absent attendance:
+   - Current Overall: Present = totalP, Total = totalC.
+   - If user is ABSENT for K classes:
+     * New Total Classes = (current Total + K)
+     * New Present Classes = (current Present) [unchanged!]
+     * New Overall % = (current Present / (current Total + K)) * 100
+     * Example: If currently 45/55 (81.8%) and absent for 5 classes:
+       New % = 45 / (55 + 5) = 45/60 = 75.0%.
+   - If user ATTENDS N classes:
+     * New Total Classes = (current Total + N)
+     * New Present Classes = (current Present + N)
+     * New Overall % = ((current Present + N) / (current Total + N)) * 100
+   - If user misses M classes then attends N classes:
+     * New Total = (current Total + M + N)
+     * New Present = (current Present + N)
+     * New Overall % = ((current Present + N) / (current Total + M + N)) * 100
+   - Always do this same exact math for each individual subject as well!
+   - ALWAYS call the calculator tool to compute these percentages so there is zero arithmetic error!
 3. 75% EXAM ELIGIBILITY:
    - Warn if any subject drops below 75% (risk of being debarred from End Sem Exams!)
    - Labs are tracked separately from theory.
