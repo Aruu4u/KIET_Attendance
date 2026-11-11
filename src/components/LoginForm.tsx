@@ -26,8 +26,8 @@ import InstallExtensionPage from "./InstallExtensionPage";
 const HARDCODED_USERNAME = "202401100200087";
 const HARDCODED_PASSWORD = "Arsal@2428";
 
-// Toggle auto-OTP login on mount. Set to false to avoid wasting OTPs during testing.
-const AUTO_LOGIN_ENABLED = false;
+// Toggle auto-OTP login on mount. Set to true to automatically trigger login and fetch OTP from Gmail.
+const AUTO_LOGIN_ENABLED = true;
 
 interface ApiErrorResponse {
 	error?: { reason?: string };
