@@ -61,6 +61,7 @@ export default function SpideyCompanion({
 	// Double-tap & Single-tap tracking
 	const lastTapTimeRef = useRef<number>(0);
 	const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const justDetachedTimeRef = useRef<number>(0);
 
 	// ── Tethered swing physics refs ──
 	const isWebTetheredRef = useRef(false);
@@ -376,6 +377,12 @@ export default function SpideyCompanion({
 		setCeilingAnchor(null);
 		setWebShootProgress(0);
 		cancelAllAnimations();
+		justDetachedTimeRef.current = Date.now();
+		lastTapTimeRef.current = 0;
+		if (singleTapTimerRef.current) {
+			clearTimeout(singleTapTimerRef.current);
+			singleTapTimerRef.current = null;
+		}
 
 		setSpeech("Web released! 🕷️✨");
 		setIsPeeping(true);
@@ -480,8 +487,8 @@ export default function SpideyCompanion({
 				window.removeEventListener("touchend", onTouchEnd);
 				window.removeEventListener("touchcancel", onTouchEnd);
 
-				if (dragDistanceRef.current <= 6) {
-					// TAP while tethered → detach web
+				if (dragDistanceRef.current <= 12) {
+					// Clean tap while swinging -> Detach and drop cleanly
 					detachWeb();
 				} else {
 					// DRAG release → fling with drag velocity
@@ -509,6 +516,11 @@ export default function SpideyCompanion({
 			return;
 		}
 
+		// Prevent re-shooting web immediately if user just detached the web
+		if (Date.now() - justDetachedTimeRef.current < 400) {
+			return;
+		}
+
 		// ═══════════════════════════════════════════
 		// MODE B: NORMAL (idle / not tethered)
 		// ═══════════════════════════════════════════
@@ -524,7 +536,7 @@ export default function SpideyCompanion({
 			const dy = my - dragStartClientRef.current.y;
 			dragDistanceRef.current = Math.hypot(dx, dy);
 
-			if (dragDistanceRef.current > 6) {
+			if (dragDistanceRef.current > 10) {
 				const targetX = dragStartPosRef.current.x + dx;
 				const targetY = dragStartPosRef.current.y + dy;
 				const clamped = clampPosition(targetX, targetY);
@@ -544,8 +556,8 @@ export default function SpideyCompanion({
 
 			const moved = dragDistanceRef.current;
 
-			// 1. DRAG FINISHED (> 6px)
-			if (moved > 6) {
+			// 1. DRAG FINISHED (> 10px movement)
+			if (moved > 10) {
 				const dx = upClientX - dragStartClientRef.current.x;
 				const dy = upClientY - dragStartClientRef.current.y;
 				const finalX = dragStartPosRef.current.x + dx;
@@ -566,12 +578,12 @@ export default function SpideyCompanion({
 				return;
 			}
 
-			// 2. TAP DETECTED (≤ 6px movement)
+			// 2. TAP DETECTED (<= 10px movement)
 			const now = Date.now();
 			const timeSinceLastTap = now - lastTapTimeRef.current;
 
-			if (timeSinceLastTap < 280 && timeSinceLastTap > 0) {
-				// DOUBLE TAP → OPEN CHATBOT
+			if (timeSinceLastTap < 350 && timeSinceLastTap > 50) {
+				// DOUBLE TAP -> OPEN CHATBOX
 				if (singleTapTimerRef.current) {
 					clearTimeout(singleTapTimerRef.current);
 					singleTapTimerRef.current = null;
@@ -579,13 +591,14 @@ export default function SpideyCompanion({
 				lastTapTimeRef.current = 0;
 				triggerChat();
 			} else {
-				// SINGLE TAP → SHOOT WEB & SWING (after 220ms to rule out double-tap)
+				// SINGLE TAP -> SHOOT WEB & SWING
+				// Wait 320ms to make sure user isn't doing a 2nd tap for chatbox!
 				lastTapTimeRef.current = now;
 				if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
 				singleTapTimerRef.current = setTimeout(() => {
 					singleTapTimerRef.current = null;
 					triggerWebSwing(posRef.current.x, posRef.current.y);
-				}, 220);
+				}, 320);
 			}
 		};
 
